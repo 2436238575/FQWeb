@@ -15,7 +15,7 @@ import java.io.ByteArrayOutputStream
 class HttpServer(port: Int) : NanoHTTPD(port) {
 
     private val defaultPage =
-        "<!DOCTYPE html>\n<html>\n<head>\n    <title>Not Found</title>\n    <style>\n    body {\n        width: 35em;\n        margin: 0 auto;\n        font-family: Tahoma, Verdana, Arial, sans-serif;\n    }\n\n    </style>\n</head>\n<body>\n<h1><a href=\"https://github.com/fengyuecanzhu/FQWeb\">FQWeb</a>: 404 Not Found.</h1>\n<p>Sorry, the page you are looking for does not exist.</p>\n<p>The server is powered by <a href=\"https://github.com/fengyuecanzhu/FQWeb\">FQWeb</a>.</p>\n<p><em>Faithfully yours, FQWeb.</em></p>\n</body>\n</html>"
+        "<!DOCTYPE html>\n<html>\n<head>\n    <title>Not Found</title>\n    <style>\n    body {\n        width: 35em;\n        margin: 0 auto;\n        font-family: Tahoma, Verdana, Arial, sans-serif;\n    }\n\n    </style>\n</head>\n<body>\n<h1>FQWeb: 404 Not Found.</h1>\n<p>Sorry, the page you are looking for does not exist.</p>\n<p>The server is powered by FQWeb.</p>\n<p><em>Faithfully yours, FQWeb.</em></p>\n</body>\n</html>"
 
     override fun serve(session: IHTTPSession): Response {
         var returnData: ReturnData? = null
