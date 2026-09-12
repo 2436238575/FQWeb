@@ -16,7 +16,7 @@ android {
     compileSdk = 33
 
     defaultConfig {
-        applicationId = "me.fycz.fqweb"
+        applicationId = "me.fycz.FQWeb"
         minSdk = 24
         targetSdk = 33
         versionCode = 143
