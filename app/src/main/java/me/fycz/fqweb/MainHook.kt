@@ -9,7 +9,6 @@ import android.graphics.Color
 import android.text.Html
 import android.text.InputFilter
 import android.text.InputType
-import android.text.method.LinkMovementMethod
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -402,7 +401,7 @@ class MainHook : IXposedHookLoadPackage {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        textview_9.movementMethod = LinkMovementMethod.getInstance()
+        textview_9.text = "当前版本：v${BuildConfig.VERSION_NAME}"
         textview_9.textSize = 16F
         linearlayout_8.addView(textview_9, layoutParams_11)
         linearlayout_0.addView(linearlayout_8, layoutParams_10)
