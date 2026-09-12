@@ -3,6 +3,7 @@ package me.fycz.fqweb.web
 import android.graphics.Bitmap
 import fi.iki.elonen.NanoHTTPD
 import me.fycz.fqweb.utils.JsonUtils
+import me.fycz.fqweb.utils.log
 import me.fycz.fqweb.web.controller.DragonController
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -62,7 +63,8 @@ class HttpServer(port: Int) : NanoHTTPD(port) {
             response.addHeader("Access-Control-Allow-Origin", session.headers["origin"])
             return response
         } catch (e: Exception) {
-            return newFixedLengthResponse(e.stackTraceToString())
+            log(e)
+            return newFixedLengthResponse(JsonUtils.toJson(ReturnData().setErrorMsg(e.message ?: e.toString())))
         }
     }
 }
