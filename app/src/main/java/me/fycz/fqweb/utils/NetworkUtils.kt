@@ -11,28 +11,31 @@ object NetworkUtils {
      * Get local Ip address.
      */
     fun getLocalIPAddress(): InetAddress? {
-        var enumeration: Enumeration<NetworkInterface>? = null
-        try {
-            enumeration = NetworkInterface.getNetworkInterfaces()
+        val interfaces = try {
+            NetworkInterface.getNetworkInterfaces()
         } catch (e: SocketException) {
             log(e)
-        }
+            null
+        } ?: return null
 
-        if (enumeration != null) {
-            while (enumeration.hasMoreElements()) {
-                val nif = enumeration.nextElement()
-                val addresses = nif.inetAddresses
-                if (addresses != null) {
-                    while (addresses.hasMoreElements()) {
-                        val address = addresses.nextElement()
-                        if (!address.isLoopbackAddress && isIPv4Address(address.hostAddress)) {
-                            return address
-                        }
+        var fallback: InetAddress? = null
+        val nifs = interfaces.toList()
+        for (nif in nifs) {
+            //跳过 VPN/隧道与点对点接口,优先物理网卡
+            if (!nif.isUp || nif.isPointToPoint || nif.isVirtual) continue
+            if (nif.name.startsWith("tun") || nif.name.startsWith("tap") || nif.name.startsWith("ppp")) continue
+            val addresses = nif.inetAddresses
+            while (addresses.hasMoreElements()) {
+                val address = addresses.nextElement()
+                if (!address.isLoopbackAddress && isIPv4Address(address.hostAddress)) {
+                    if (nif.name.startsWith("wlan") || nif.name.startsWith("eth")) {
+                        return address
                     }
+                    if (fallback == null) fallback = address
                 }
             }
         }
-        return null
+        return fallback
     }
 
     /**
