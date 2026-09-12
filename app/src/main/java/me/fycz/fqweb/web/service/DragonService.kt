@@ -93,8 +93,10 @@ object DragonService {
     }
 
     fun decodeContent(itemContent: Any): Any {
-        return "com.dragon.read.reader.bookend.a.a".findClass(dragonClassLoader)
-            .new(null).callMethod("a", itemContent)!!.callMethod("blockingFirst")!!
+        return withRetry {
+            "com.dragon.read.reader.bookend.a.a".findClass(dragonClassLoader)
+                .new(null).callMethod("a", itemContent)!!.callMethod("blockingFirst")!!
+        }
     }
 
     fun bookMall(parameters: Map<String, MutableList<String>>): Any {
@@ -123,12 +125,28 @@ object DragonService {
         )
     }
 
+    //宿主 RPC 走 Cronet/QUIC，大响应偶发中断流错误；接口全部只读，失败自动重试一次
+    private inline fun <T> withRetry(block: () -> T): T {
+        var lastError: Throwable? = null
+        repeat(2) { attempt ->
+            if (attempt > 0) runCatching { Thread.sleep(300) }
+            try {
+                return block()
+            } catch (e: Throwable) {
+                lastError = e
+            }
+        }
+        throw lastError!!
+    }
+
     private fun callFunction(clzName: String, funcName: String = "a", obj: Any): Any {
-        return clzName.findClass(dragonClassLoader)
-            .callStaticMethod(
-                funcName,
-                obj
-            )!!.callMethod("blockingFirst")!!
+        return withRetry {
+            clzName.findClass(dragonClassLoader)
+                .callStaticMethod(
+                    funcName,
+                    obj
+                )!!.callMethod("blockingFirst")!!
+        }
     }
 
     private fun setField(obj: Any, name: String, value: Any) {
