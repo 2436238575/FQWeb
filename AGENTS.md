@@ -7,7 +7,7 @@
 - **项目**：FQWeb —— 番茄小说 Web 服务 Xposed 模块，LSPosed 作用域为 `com.dragon.read`。
 - **技术栈**：Kotlin + Xposed API（`app/libs/api-82.jar`，compileOnly）+ NanoHTTPD 2.3.1；`frpc` flavor 额外内嵌 `frpclib.aar`（约 40MB，含内网穿透客户端）。
 - **applicationId**：`me.fycz.FQWeb`；代码包名/namespace 保持 `me.fycz.fqweb`，二者不同是有意的，不要"统一"它们。
-- **版本**：versionName 遵循[语义化版本 2.0.0](https://semver.org/lang/zh-CN/)（0.y.z 为初始开发期）；`versionCode` 是与 SemVer 解耦的独立自增整数，当前 0.1.0 / 1。
+- **版本**：versionName 遵循[语义化版本 2.0.0](https://semver.org/lang/zh-CN/)（0.y.z 为初始开发期）；`versionCode` 是与 SemVer 解耦的独立自增整数。当前值以 `app/build.gradle.kts` 为准。
 - **本地构建环境**：JDK 17 在 `tools/jdk-17*`，Android SDK 在 `sdk/`，均已被 gitignore，无需全局环境。
 
 ## 构建与验证

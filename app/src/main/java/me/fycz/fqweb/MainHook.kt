@@ -241,6 +241,7 @@ class MainHook : IXposedHookLoadPackage {
         )
         linearlayout_4.addView(s_auto_start, layoutParams_6)
         linearlayout_0.addView(linearlayout_4, layoutParams_4)
+        val batteryBefore = SPUtils.getBoolean("batterySaver", true)
         val linearlayout_5 = LinearLayout(context)
         val layoutParams_20 = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -303,7 +304,6 @@ class MainHook : IXposedHookLoadPackage {
         linearlayout_0.addView(linearlayout_7, layoutParams_7)
 
         var frpcEnable = SPUtils.getBoolean("traversal", false)
-        val batteryBefore = SPUtils.getBoolean("batterySaver", true)
 
         if (isFrpcVersion) {
             val linearlayout_9 = LinearLayout(context)
