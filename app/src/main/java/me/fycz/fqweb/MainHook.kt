@@ -33,7 +33,7 @@ import me.fycz.fqweb.utils.hookAfterMethod
 import me.fycz.fqweb.utils.invokeOriginalMethod
 import me.fycz.fqweb.utils.log
 import me.fycz.fqweb.utils.new
-import me.fycz.fqweb.utils.replaceAfterAllMethods
+import me.fycz.fqweb.utils.replaceConcreteMethods
 import me.fycz.fqweb.utils.replaceMethod
 import me.fycz.fqweb.utils.setObjectField
 import me.fycz.fqweb.web.FrpcServer
@@ -68,7 +68,6 @@ class MainHook : IXposedHookLoadPackage {
                     SPUtils.init(app)
                     hookSetting(lpparam.classLoader)
                     hookUpdate(lpparam.classLoader)
-                    hookBattery(lpparam.classLoader)
                     httpServer = HttpServer(SPUtils.getInt("port", 9999))
                     if (isFrpcVersion) frpcServer = FrpcServer { httpServer.isAlive }
                     if (!httpServer.isAlive && SPUtils.getBoolean("autoStart", false)) {
@@ -80,6 +79,7 @@ class MainHook : IXposedHookLoadPackage {
                             log(e)
                         }
                     }
+                    hookBattery(lpparam.classLoader)
 
                 }
             }
@@ -117,7 +117,7 @@ class MainHook : IXposedHookLoadPackage {
                     setting.setObjectField(Config.settingItemStrFieldName, "Web服务")
                     setting.setObjectField(
                         Config.settingItemSubStrFieldName,
-                        if (httpServer.isAlive)
+                        if (this::httpServer.isInitialized && httpServer.isAlive)
                             "已开启(http://${NetworkUtils.getLocalIPAddress()?.hostAddress ?: "localhost"}:${
                                 SPUtils.getInt(
                                     "port",
@@ -530,22 +530,26 @@ class MainHook : IXposedHookLoadPackage {
     //（闹钟/任务调度/周期同步/唤醒锁）；FQWeb 服务是被动监听，外部请求照常唤醒处理
     private fun hookBattery(classLoader: ClassLoader) {
         if (!SPUtils.getBoolean("batterySaver", true)) return
-        val alarmManager = "android.app.AlarmManager".findClass(classLoader)
-        listOf(
-            "set", "setExact", "setWindow", "setRepeating",
-            "setAndAllowWhileIdle", "setExactAndAllowWhileIdle",
-            "setInexactRepeating", "setAlarmClock"
-        ).forEach { name ->
-            alarmManager.replaceAfterAllMethods(name) { null }
+        try {
+            val alarmManager = "android.app.AlarmManager".findClass(classLoader)
+            listOf(
+                "set", "setExact", "setWindow", "setRepeating",
+                "setAndAllowWhileIdle", "setExactAndAllowWhileIdle",
+                "setInexactRepeating", "setAlarmClock"
+            ).forEach { name ->
+                alarmManager.replaceConcreteMethods(name) { null }
+            }
+            "android.app.job.JobScheduler".findClass(classLoader).let {
+                it.replaceConcreteMethods("schedule") { 0 }
+                it.replaceConcreteMethods("enqueue") { 0 }
+            }
+            "android.content.ContentResolver".findClass(classLoader)
+                .replaceConcreteMethods("addPeriodicSync") { null }
+            "android.os.PowerManager\$WakeLock".findClass(classLoader)
+                .replaceConcreteMethods("acquire") { null }
+            log("省电模式已启用：宿主闹钟/任务调度/周期同步/唤醒锁已屏蔽")
+        } catch (e: Throwable) {
+            log(e)
         }
-        "android.app.job.JobScheduler".findClass(classLoader).let {
-            it.replaceAfterAllMethods("schedule") { 0 }
-            it.replaceAfterAllMethods("enqueue") { 0 }
-        }
-        "android.content.ContentResolver".findClass(classLoader)
-            .replaceAfterAllMethods("addPeriodicSync") { null }
-        "android.os.PowerManager\$WakeLock".findClass(classLoader)
-            .replaceAfterAllMethods("acquire") { null }
-        log("省电模式已启用：宿主闹钟/任务调度/周期同步/唤醒锁已屏蔽")
     }
 }

@@ -15,6 +15,7 @@ import de.robv.android.xposed.callbacks.XC_LayoutInflated
 import java.lang.reflect.Field
 import java.lang.reflect.Member
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.util.*
 
 const val TAG = "FQWeb"
@@ -133,6 +134,12 @@ inline fun Class<*>.replaceAfterAllMethods(methodName: String?, crossinline repl
     hookAllMethods(methodName, object : XC_MethodReplacement() {
         override fun replaceHookedMethod(param: MethodHookParam) = param.callReplacer(replacer)
     })
+
+//JobScheduler 等抽象类里同名方法可能是 abstract，直接 hook 会抛 IllegalArgumentException，需跳过
+inline fun Class<*>.replaceConcreteMethods(methodName: String?, crossinline replacer: Replacer) {
+    declaredMethods.filter { it.name == methodName && !Modifier.isAbstract(it.modifiers) }
+        .forEach { it.replaceMethod(replacer) }
+}
 
 fun Class<*>.hookConstructor(vararg args: Any?) = try {
     XposedHelpers.findAndHookConstructor(this, *args)
