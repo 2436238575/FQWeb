@@ -1,6 +1,7 @@
 package me.fycz.fqweb.web
 
 import android.graphics.Bitmap
+import de.robv.android.xposed.XposedHelpers
 import fi.iki.elonen.NanoHTTPD
 import me.fycz.fqweb.utils.JsonUtils
 import me.fycz.fqweb.utils.log
@@ -60,9 +61,15 @@ class HttpServer(port: Int) : NanoHTTPD(port) {
                 newFixedLengthResponse(JsonUtils.toJson(returnData))
             }
             return response
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             log(e)
-            return newFixedLengthResponse(JsonUtils.toJson(ReturnData().setErrorMsg(e.message ?: e.toString())))
+            //ClassNotFoundError 继承 Error 而非 Exception,宿主版本不匹配时最常见,必须与 Error 一并接住
+            val errorMsg = when (e) {
+                is XposedHelpers.ClassNotFoundError, is ClassNotFoundException, is LinkageError ->
+                    "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                else -> e.message ?: e.toString()
+            }
+            return newFixedLengthResponse(JsonUtils.toJson(ReturnData().setErrorMsg(errorMsg)))
         }
     }
 }
