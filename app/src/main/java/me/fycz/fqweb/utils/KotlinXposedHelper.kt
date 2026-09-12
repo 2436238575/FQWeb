@@ -393,8 +393,8 @@ fun String.findClassOrNull(classLoader: ClassLoader?): Class<*>? =
 fun String.findMethod(classLoader: ClassLoader?, method: String?, vararg args: Any?): Method =
     XposedHelpers.findMethodExact(this, classLoader, method, args)
 
-fun String.findMethodOrNull(classLoader: ClassLoader?, method: String?, vararg args: Any?): Method =
-    XposedHelpers.findMethodExact(this, classLoader, method, args)
+fun String.findMethodOrNull(classLoader: ClassLoader?, method: String?, vararg args: Any?): Method? =
+    XposedHelpers.findMethodExactIfExists(this, classLoader, method, *args)
 
 fun Class<*>.new(vararg args: Any?): Any = XposedHelpers.newInstance(this, *args)
 
