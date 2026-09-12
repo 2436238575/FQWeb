@@ -33,6 +33,7 @@ import me.fycz.fqweb.utils.hookAfterMethod
 import me.fycz.fqweb.utils.invokeOriginalMethod
 import me.fycz.fqweb.utils.log
 import me.fycz.fqweb.utils.new
+import me.fycz.fqweb.utils.replaceAfterAllMethods
 import me.fycz.fqweb.utils.replaceMethod
 import me.fycz.fqweb.utils.setObjectField
 import me.fycz.fqweb.web.FrpcServer
