@@ -59,22 +59,22 @@ object DragonService {
         )
     }
 
-    fun getInfo(bookId: String): Any {
+    fun getInfo(bookId: Long): Any {
         val BookDetailRequest =
             "${Config.rpcModelPackage}.BookDetailRequest".findClass(dragonClassLoader)
         val bookDetailRequest = BookDetailRequest.newInstance()
-        bookDetailRequest.setLongField("bookId", bookId.toLong())
+        bookDetailRequest.setLongField("bookId", bookId)
         return callFunction(
             clzName = "${Config.rpcApiPackage}.a",
             obj = bookDetailRequest
         )
     }
 
-    fun getCatalog(bookId: String): Any {
+    fun getCatalog(bookId: Long): Any {
         val GetDirectoryForItemIdRequest =
             "${Config.rpcModelPackage}.GetDirectoryForItemIdRequest".findClass(dragonClassLoader)
         val getDirectoryForItemIdRequest = GetDirectoryForItemIdRequest.newInstance()
-        getDirectoryForItemIdRequest.setObjectField("bookId", bookId.toLong())
+        getDirectoryForItemIdRequest.setObjectField("bookId", bookId)
         return callFunction(
             clzName = "${Config.rpcApiPackage}.a",
             obj = getDirectoryForItemIdRequest

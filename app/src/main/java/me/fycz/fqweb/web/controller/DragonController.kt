@@ -14,7 +14,7 @@ object DragonController {
 
     fun search(parameters: Map<String, List<String>>): ReturnData {
         val keyword = parameters["query"]?.firstOrNull()
-        val page = parameters["page"]?.firstOrNull()?.toInt() ?: 1
+        val page = parameters["page"]?.firstOrNull()?.toIntOrNull() ?: 1
         val returnData = ReturnData()
         if (keyword.isNullOrEmpty()) {
             return returnData.setErrorMsg("参数query不能为空")
@@ -24,20 +24,20 @@ object DragonController {
     }
 
     fun info(parameters: Map<String, MutableList<String>>): ReturnData {
-        val bookId = parameters["book_id"]?.firstOrNull()
+        val bookId = parameters["book_id"]?.firstOrNull()?.toLongOrNull()
         val returnData = ReturnData()
-        if (bookId.isNullOrEmpty()) {
-            return returnData.setErrorMsg("参数book_id不能为空")
+        if (bookId == null) {
+            return returnData.setErrorMsg("参数book_id不能为空或非法")
         }
         returnData.setData(DragonService.getInfo(bookId))
         return returnData
     }
 
     fun catalog(parameters: Map<String, MutableList<String>>): ReturnData {
-        val bookId = parameters["book_id"]?.firstOrNull()
+        val bookId = parameters["book_id"]?.firstOrNull()?.toLongOrNull()
         val returnData = ReturnData()
-        if (bookId.isNullOrEmpty()) {
-            return returnData.setErrorMsg("参数book_id不能为空")
+        if (bookId == null) {
+            return returnData.setErrorMsg("参数book_id不能为空或非法")
         }
         returnData.setData(DragonService.getCatalog(bookId))
         return returnData
