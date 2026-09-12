@@ -108,7 +108,7 @@ class MainHook : IXposedHookLoadPackage {
             ) {
                 adapter = it.thisObject.getObjectField(Config.settingAdapterFiledName)
                 val list = it.result as LinkedList<Any>
-                if (list[0].getObjectField(Config.settingItemStrFieldName) != "Web服务") {
+                if (list.isEmpty() || list[0].getObjectField(Config.settingItemStrFieldName) != "Web服务") {
                     val context = it.thisObject as Context
                     val setting =
                         Config.settingItemQSNClz.findClass(classLoader)
@@ -302,7 +302,7 @@ class MainHook : IXposedHookLoadPackage {
                     if (isChecked) {
                         AlertDialog.Builder(context)
                             .setTitle("内网穿透风险警告和免责声明")
-                            .setMessage(Html.fromHtml(TRAVERSAL_DISCLAIMER))
+                            .setMessage(Html.fromHtml(TRAVERSAL_DISCLAIMER, Html.FROM_HTML_MODE_LEGACY))
                             .setCancelable(false)
                             .setPositiveButton("我已阅读并同意") { _, _ ->
                                 isChecked = true
