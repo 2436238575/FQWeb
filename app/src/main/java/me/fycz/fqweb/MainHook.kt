@@ -259,7 +259,7 @@ class MainHook : IXposedHookLoadPackage {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        textview_13.text = "后台省电（限制精确闹钟）："
+        textview_13.text = "服务器省电（屏蔽宿主唤醒源）："
         textview_13.setTextColor(textColor)
         textview_13.textSize = 16F
         linearlayout_5.addView(textview_13, layoutParams_21)
@@ -525,36 +525,26 @@ class MainHook : IXposedHookLoadPackage {
         "com.dragon.read.update.d".replaceMethod(classLoader, "a", Int::class.java) {}
     }
 
-    //保守省电：把宿主的精确闹钟降级为可合并的非精确闹钟，交由系统在省电时批量触发；
-    //setAlarmClock（阅读提醒）与 WakeLock（听书播放）不参与降级
+    //服务器省电：宿主只作为 FQWeb 的承载进程，屏蔽它调度唤醒的一切手段
+    //（闹钟/任务调度/周期同步/唤醒锁）；FQWeb 服务是被动监听，外部请求照常唤醒处理
     private fun hookBattery(classLoader: ClassLoader) {
         if (!SPUtils.getBoolean("batterySaver", true)) return
-        val alarmManager = "android.app.AlarmManager"
-        val pendingIntent = "android.app.PendingIntent"
-        alarmManager.replaceMethod(
-            classLoader, "setExact",
-            Int::class.java, Long::class.java, pendingIntent
-        ) {
-            it.thisObject.callMethod("set", it.args[0], it.args[1], it.args[2])
+        val alarmManager = "android.app.AlarmManager".findClass(classLoader)
+        listOf(
+            "set", "setExact", "setWindow", "setRepeating",
+            "setAndAllowWhileIdle", "setExactAndAllowWhileIdle",
+            "setInexactRepeating", "setAlarmClock"
+        ).forEach { name ->
+            alarmManager.replaceAfterAllMethods(name) { null }
         }
-        alarmManager.replaceMethod(
-            classLoader, "setExactAndAllowWhileIdle",
-            Int::class.java, Long::class.java, pendingIntent
-        ) {
-            it.thisObject.callMethod("set", it.args[0], it.args[1], it.args[2])
+        "android.app.job.JobScheduler".findClass(classLoader).let {
+            it.replaceAfterAllMethods("schedule") { 0 }
+            it.replaceAfterAllMethods("enqueue") { 0 }
         }
-        alarmManager.replaceMethod(
-            classLoader, "setWindow",
-            Int::class.java, Long::class.java, Long::class.java, pendingIntent
-        ) {
-            it.thisObject.callMethod("set", it.args[0], it.args[1], it.args[2])
-        }
-        alarmManager.replaceMethod(
-            classLoader, "setRepeating",
-            Int::class.java, Long::class.java, Long::class.java, pendingIntent
-        ) {
-            it.thisObject.callMethod("setInexactRepeating", it.args[0], it.args[1], it.args[2], it.args[3])
-        }
-        log("省电模式已启用：宿主精确闹钟已降级")
+        "android.content.ContentResolver".findClass(classLoader)
+            .replaceAfterAllMethods("addPeriodicSync") { null }
+        "android.os.PowerManager\$WakeLock".findClass(classLoader)
+            .replaceAfterAllMethods("acquire") { null }
+        log("省电模式已启用：宿主闹钟/任务调度/周期同步/唤醒锁已屏蔽")
     }
 }
