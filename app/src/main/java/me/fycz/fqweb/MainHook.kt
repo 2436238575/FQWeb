@@ -69,7 +69,7 @@ class MainHook : IXposedHookLoadPackage {
                     hookSetting(lpparam.classLoader)
                     hookUpdate(lpparam.classLoader)
                     httpServer = HttpServer(SPUtils.getInt("port", 9999))
-                    if (isFrpcVersion) frpcServer = FrpcServer()
+                    if (isFrpcVersion) frpcServer = FrpcServer { httpServer.isAlive }
                     if (!httpServer.isAlive && SPUtils.getBoolean("autoStart", false)) {
                         try {
                             httpServer.start()

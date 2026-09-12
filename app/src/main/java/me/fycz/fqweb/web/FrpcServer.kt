@@ -19,7 +19,7 @@ import java.io.File
  * @date 2023/7/24 13:53
  * @description
  */
-class FrpcServer {
+class FrpcServer(private val isWebAlive: () -> Boolean) {
     private var myThread: Thread? = null
 
     private var heartThread: Thread? = null
@@ -132,7 +132,10 @@ class FrpcServer {
         heartThread = Thread {
             Thread.sleep(1000)
             while (!isFailed && isAlive) {
-                status = try {
+                status = if (!isWebAlive()) {
+                    //本地服务未运行,隧道探活和地址上报都无意义
+                    "离线"
+                } else try {
                     HttpUtils.doGet("http://$domain/content")
                     HttpUtils.doGet(currentServer!!.uploadDomainUrl!!.replace("{domain}", domain))
                     "在线"
