@@ -417,13 +417,13 @@ class MainHook : IXposedHookLoadPackage {
             .setNegativeButton("取消", null)
             .setPositiveButton("保存设置") { dialog, _ ->
                 SPUtils.putBoolean("autoStart", s_auto_start.isChecked)
-                val port = et_port.text.toString().toInt()
+                val port = et_port.text.toString().toIntOrNull() ?: 0
                 if (port !in 1024..65535) {
                     Toast.makeText(context, "端口只能在1024-65535之间", Toast.LENGTH_SHORT)
                         .show()
-                } else {
-                    SPUtils.putInt("port", port)
+                    return@setPositiveButton
                 }
+                SPUtils.putInt("port", port)
                 if (s_enable.isChecked) {
                     try {
                         restartServe()
