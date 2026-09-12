@@ -18,7 +18,7 @@ object Config {
     }
 
     const val TRAVERSAL_CONFIG_URL =
-        "https://gitee.com/fengyuecanzhu/FQWeb/raw/master/traversal/config.json"
+        "https://raw.githubusercontent.com/2436238575/FQWeb/master/traversal/config.json"
 
     const val DEFAULT_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4168.3 Safari/537.36"
