@@ -50,9 +50,7 @@ object DragonController {
             return returnData.setErrorMsg("参数item_id不能为空")
         }
         val content = DragonService.getContent(itemId)
-        kotlin.runCatching {
-            DragonService.decodeContent(content.getObjectField("data") as Any)
-        }
+        DragonService.decodeContent(content.getObjectField("data") as Any)
         returnData.setData(content)
         return returnData
     }
