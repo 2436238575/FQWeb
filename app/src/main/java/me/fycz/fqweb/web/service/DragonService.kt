@@ -124,15 +124,11 @@ object DragonService {
     }
 
     private fun callFunction(clzName: String, funcName: String = "a", obj: Any): Any {
-        return try {
-            clzName.findClass(dragonClassLoader)
-                .callStaticMethod(
-                    funcName,
-                    obj
-                )!!.callMethod("blockingFirst")!!
-        } catch (e: Throwable) {
-            e.stackTraceToString()
-        }
+        return clzName.findClass(dragonClassLoader)
+            .callStaticMethod(
+                funcName,
+                obj
+            )!!.callMethod("blockingFirst")!!
     }
 
     private fun setField(obj: Any, name: String, value: Any) {
