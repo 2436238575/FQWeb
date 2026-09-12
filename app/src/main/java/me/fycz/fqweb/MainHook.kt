@@ -171,7 +171,7 @@ class MainHook : IXposedHookLoadPackage {
         val linearlayout_0 = LinearLayout(context)
         val layoutParams_0 = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
+            ViewGroup.LayoutParams.WRAP_CONTENT
         )
         linearlayout_0.orientation = LinearLayout.VERTICAL
         val linearlayout_1 = LinearLayout(context)
@@ -190,8 +190,9 @@ class MainHook : IXposedHookLoadPackage {
 
         val textview_2 = TextView(context)
         val layoutParams_2 = LinearLayout.LayoutParams(
+            0,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            1F
         )
         textview_2.text = "服务端口："
         textview_2.setTextColor(textColor)
@@ -202,7 +203,7 @@ class MainHook : IXposedHookLoadPackage {
             filters = arrayOf(InputFilter.LengthFilter(5))
         }
         val layoutParams_3 = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp2px(context, 140F),
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
         et_port.hint = "请输入1024-65535之间的值"
@@ -226,8 +227,9 @@ class MainHook : IXposedHookLoadPackage {
         linearlayout_4.orientation = LinearLayout.HORIZONTAL
         val textview_5 = TextView(context)
         val layoutParams_5 = LinearLayout.LayoutParams(
+            0,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            1F
         )
         textview_5.text = "随番茄自动启动服务："
         textview_5.setTextColor(textColor)
@@ -257,8 +259,9 @@ class MainHook : IXposedHookLoadPackage {
         linearlayout_5.orientation = LinearLayout.HORIZONTAL
         val textview_13 = TextView(context)
         val layoutParams_21 = LinearLayout.LayoutParams(
+            0,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            1F
         )
         textview_13.text = "服务器省电（屏蔽宿主唤醒源）："
         textview_13.setTextColor(textColor)
@@ -287,8 +290,9 @@ class MainHook : IXposedHookLoadPackage {
         linearlayout_7.orientation = LinearLayout.HORIZONTAL
         val textview_8 = TextView(context)
         val layoutParams_8 = LinearLayout.LayoutParams(
+            0,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            1F
         )
         textview_8.text = "开启服务："
         textview_8.setTextColor(textColor)
@@ -434,7 +438,7 @@ class MainHook : IXposedHookLoadPackage {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        textview_9.text = "当前版本：v${BuildConfig.VERSION_NAME}"
+        textview_9.text = "版本：v${BuildConfig.VERSION_NAME}"
         textview_9.textSize = 16F
         linearlayout_8.addView(textview_9, layoutParams_11)
         linearlayout_0.addView(linearlayout_8, layoutParams_10)
