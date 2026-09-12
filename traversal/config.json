@@ -9,8 +9,7 @@
       "owner": "yourname",
       "frpcConfig": "[common]\nserver_addr = frp.example.com\nserver_port = 7000\ntoken = your_frp_token\n\n[fqweb_{timestamp}]\ntype = http\nlocal_ip = 127.0.0.1\nlocal_port = {port}\ncustom_domains = {domain}",
       "customDomain": "{timestamp}.fanqie.example.com",
-      "uploadDomainUrl": "http://list.example.com/upload?domain={domain}",
-      "getDomainUrl": "http://list.example.com/random"
+      "uploadDomainUrl": "http://list.example.com/upload?domain={domain}"
     }
   ]
 }
