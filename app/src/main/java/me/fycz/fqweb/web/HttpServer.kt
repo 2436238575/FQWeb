@@ -58,7 +58,7 @@ class HttpServer(port: Int) : NanoHTTPD(port) {
                     byteArray.size.toLong()
                 )
             } else {
-                newFixedLengthResponse(JsonUtils.toJson(returnData))
+                newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", JsonUtils.toJson(returnData))
             }
             return response
         } catch (e: Throwable) {
@@ -69,7 +69,7 @@ class HttpServer(port: Int) : NanoHTTPD(port) {
                     "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
                 else -> e.message ?: e.toString()
             }
-            return newFixedLengthResponse(JsonUtils.toJson(ReturnData().setErrorMsg(errorMsg)))
+            return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", JsonUtils.toJson(ReturnData().setErrorMsg(errorMsg)))
         }
     }
 }
