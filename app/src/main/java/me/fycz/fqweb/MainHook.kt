@@ -67,6 +67,7 @@ class MainHook : IXposedHookLoadPackage {
                     SPUtils.init(app)
                     hookSetting(lpparam.classLoader)
                     hookUpdate(lpparam.classLoader)
+                    hookBattery(lpparam.classLoader)
                     httpServer = HttpServer(SPUtils.getInt("port", 9999))
                     if (isFrpcVersion) frpcServer = FrpcServer { httpServer.isAlive }
                     if (!httpServer.isAlive && SPUtils.getBoolean("autoStart", false)) {
@@ -240,6 +241,36 @@ class MainHook : IXposedHookLoadPackage {
         )
         linearlayout_4.addView(s_auto_start, layoutParams_6)
         linearlayout_0.addView(linearlayout_4, layoutParams_4)
+        val linearlayout_5 = LinearLayout(context)
+        val layoutParams_20 = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        linearlayout_5.setPadding(
+            dp2px(context, 10F),
+            dp2px(context, 10F),
+            dp2px(context, 10F),
+            dp2px(context, 10F)
+        )
+        linearlayout_5.orientation = LinearLayout.HORIZONTAL
+        val textview_13 = TextView(context)
+        val layoutParams_21 = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        textview_13.text = "后台省电（限制精确闹钟）："
+        textview_13.setTextColor(textColor)
+        textview_13.textSize = 16F
+        linearlayout_5.addView(textview_13, layoutParams_21)
+        val s_battery = Switch(context).apply {
+            isChecked = batteryBefore
+        }
+        val layoutParams_22 = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        linearlayout_5.addView(s_battery, layoutParams_22)
+        linearlayout_0.addView(linearlayout_5, layoutParams_20)
         val linearlayout_7 = LinearLayout(context)
         val layoutParams_7 = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -272,6 +303,7 @@ class MainHook : IXposedHookLoadPackage {
         linearlayout_0.addView(linearlayout_7, layoutParams_7)
 
         var frpcEnable = SPUtils.getBoolean("traversal", false)
+        val batteryBefore = SPUtils.getBoolean("batterySaver", true)
 
         if (isFrpcVersion) {
             val linearlayout_9 = LinearLayout(context)
@@ -455,6 +487,10 @@ class MainHook : IXposedHookLoadPackage {
                         ToastUtils.toast("内网穿透服务配置将在重启应用后生效")
                     }
                 }
+                SPUtils.putBoolean("batterySaver", s_battery.isChecked)
+                if (s_battery.isChecked != batteryBefore) {
+                    ToastUtils.toast("省电模式设置将在重启应用后生效")
+                }
             }.create().show()
     }
 
@@ -487,5 +523,38 @@ class MainHook : IXposedHookLoadPackage {
             return
         }
         "com.dragon.read.update.d".replaceMethod(classLoader, "a", Int::class.java) {}
+    }
+
+    //保守省电：把宿主的精确闹钟降级为可合并的非精确闹钟，交由系统在省电时批量触发；
+    //setAlarmClock（阅读提醒）与 WakeLock（听书播放）不参与降级
+    private fun hookBattery(classLoader: ClassLoader) {
+        if (!SPUtils.getBoolean("batterySaver", true)) return
+        val alarmManager = "android.app.AlarmManager"
+        val pendingIntent = "android.app.PendingIntent"
+        alarmManager.replaceMethod(
+            classLoader, "setExact",
+            Int::class.java, Long::class.java, pendingIntent
+        ) {
+            it.thisObject.callMethod("set", it.args[0], it.args[1], it.args[2])
+        }
+        alarmManager.replaceMethod(
+            classLoader, "setExactAndAllowWhileIdle",
+            Int::class.java, Long::class.java, pendingIntent
+        ) {
+            it.thisObject.callMethod("set", it.args[0], it.args[1], it.args[2])
+        }
+        alarmManager.replaceMethod(
+            classLoader, "setWindow",
+            Int::class.java, Long::class.java, Long::class.java, pendingIntent
+        ) {
+            it.thisObject.callMethod("set", it.args[0], it.args[1], it.args[2])
+        }
+        alarmManager.replaceMethod(
+            classLoader, "setRepeating",
+            Int::class.java, Long::class.java, Long::class.java, pendingIntent
+        ) {
+            it.thisObject.callMethod("setInexactRepeating", it.args[0], it.args[1], it.args[2], it.args[3])
+        }
+        log("省电模式已启用：宿主精确闹钟已降级")
     }
 }
