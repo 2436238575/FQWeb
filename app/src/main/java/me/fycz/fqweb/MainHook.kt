@@ -194,7 +194,7 @@ class MainHook : IXposedHookLoadPackage {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             1F
         )
-        textview_2.text = "服务端口："
+        textview_2.text = "端口"
         textview_2.setTextColor(textColor)
         textview_2.textSize = 16F
         linearlayout_1.addView(textview_2, layoutParams_2)
@@ -231,7 +231,7 @@ class MainHook : IXposedHookLoadPackage {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             1F
         )
-        textview_5.text = "随番茄自动启动服务："
+        textview_5.text = "随番茄自动启动服务"
         textview_5.setTextColor(textColor)
         textview_5.textSize = 16F
         linearlayout_4.addView(textview_5, layoutParams_5)
@@ -263,7 +263,7 @@ class MainHook : IXposedHookLoadPackage {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             1F
         )
-        textview_13.text = "服务器省电（屏蔽宿主唤醒源）："
+        textview_13.text = "服务器省电（屏蔽宿主唤醒源）"
         textview_13.setTextColor(textColor)
         textview_13.textSize = 16F
         linearlayout_5.addView(textview_13, layoutParams_21)
@@ -294,7 +294,7 @@ class MainHook : IXposedHookLoadPackage {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             1F
         )
-        textview_8.text = "开启服务："
+        textview_8.text = "开启服务"
         textview_8.setTextColor(textColor)
         textview_8.textSize = 16F
         linearlayout_7.addView(textview_8, layoutParams_8)
