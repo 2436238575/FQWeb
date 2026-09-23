@@ -64,6 +64,26 @@ url：http://localhost:9999/catalog?book_id=书籍ID
 method：GET
 url：http://localhost:9999/content?item_id=章节itemId
 ```
+### 获取书籍评论
+```
+method：GET
+url：http://localhost:9999/comment?book_id=书籍ID&page=页数&count=每页数量&sort=排序
+```
+`count` 可选，默认20、最大50；`sort` 可选，`smart_hot`（综合热度，默认）或 `time`（按时间）
+
+`smart_hot` 是推荐流，服务端不认 offset，翻页需把上一页响应里的 `session_id` 回传：
+```
+url：http://localhost:9999/comment?book_id=书籍ID&page=2&session_id=上一页返回的session_id
+```
+`time` 排序按 offset 正常翻页，无需 `session_id`
+
+### 获取章节评论
+```
+method：GET
+url：http://localhost:9999/comment/item?item_id=章节itemId&book_id=书籍ID&page=页数&count=每页数量
+```
+`book_id` 必填；每条评论的 `reply_list` 为内联回复
+
 ### 获取发现书籍
 ```
 method：GET

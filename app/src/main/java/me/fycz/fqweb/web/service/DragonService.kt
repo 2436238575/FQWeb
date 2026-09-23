@@ -8,6 +8,7 @@ import me.fycz.fqweb.utils.callStaticMethod
 import me.fycz.fqweb.utils.findClass
 import me.fycz.fqweb.utils.findField
 import me.fycz.fqweb.utils.getObjectField
+import me.fycz.fqweb.utils.getStaticObjectFieldOrNull
 import me.fycz.fqweb.utils.log
 import me.fycz.fqweb.utils.new
 import me.fycz.fqweb.utils.setBooleanField
@@ -99,8 +100,62 @@ object DragonService {
         }
     }
 
-    fun bookMall(parameters: Map<String, MutableList<String>>): Any {
-        val GetBookMallCellChangeRequest =
+    fun getBookComments(
+        bookId: String,
+        page: Int,
+        count: Int,
+        sort: String,
+        sessionId: String? = null,
+    ): Any {
+        val GetCommentByBookIdRequest =
+            "${Config.rpcModelPackage}.GetCommentByBookIdRequest".findClass(dragonClassLoader)
+        val getCommentByBookIdRequest = GetCommentByBookIdRequest.newInstance()
+        getCommentByBookIdRequest.setObjectField("bookId", bookId)
+        getCommentByBookIdRequest.setLongField("offset", (page - 1).toLong() * count)
+        getCommentByBookIdRequest.setLongField("count", count.toLong())
+        getCommentByBookIdRequest.setObjectField("sort", sort)
+        getCommentByBookIdRequest.setObjectField(
+            "sourceType",
+            commentEnum("SourcePageType", "DetailBookCommentList")
+        )
+        //smart_hot 是推荐流，服务端只认会话游标不认 offset；翻页请求按宿主做法带上会话
+        if (!sessionId.isNullOrEmpty()) {
+            getCommentByBookIdRequest.setObjectField("sessionId", sessionId)
+            getCommentByBookIdRequest.setObjectField(
+                "queryType",
+                commentEnum("CommentQueryType", "Normal")
+            )
+        }
+        return callFunction(clzName = Config.commentRpcApiClz, obj = getCommentByBookIdRequest)
+    }
+
+    fun getItemComments(itemId: String, bookId: String, page: Int, count: Int): Any {
+        val GetCommentByItemIdRequest =
+            "${Config.rpcModelPackage}.GetCommentByItemIdRequest".findClass(dragonClassLoader)
+        val getCommentByItemIdRequest = GetCommentByItemIdRequest.newInstance()
+        getCommentByItemIdRequest.setObjectField("itemId", itemId)
+        getCommentByItemIdRequest.setObjectField("bookId", bookId)
+        getCommentByItemIdRequest.setLongField("offset", (page - 1).toLong() * count)
+        getCommentByItemIdRequest.setLongField("count", count.toLong())
+        //needReply 才会带上每条评论的内联回复；queryCol 限定只取评论本身
+        getCommentByItemIdRequest.setBooleanField("needReply", true)
+        getCommentByItemIdRequest.setObjectField(
+            "queryCol",
+            commentEnum("QueryCollection", "OnlyComment")
+        )
+        return callFunction(clzName = Config.commentRpcApiClz, obj = getCommentByItemIdRequest)
+    }
+
+    //枚举常量名在 rpc.model 下未被混淆，按名取；取不到时留空交由宿主按默认值处理
+    private fun commentEnum(clzName: String, name: String): Any? {
+        val value = "${Config.rpcModelPackage}.$clzName"
+            .findClass(dragonClassLoader)
+            .getStaticObjectFieldOrNull(name)
+        if (value == null) log("枚举常量缺失：$clzName.$name")
+        return value
+    }
+
+    fun bookMall(parameters: Map<String, MutableList<String>>): Any {        val GetBookMallCellChangeRequest =
             "${Config.rpcModelPackage}.GetBookMallCellChangeRequest".findClass(dragonClassLoader)
         val getBookMallCellChangeRequest = GetBookMallCellChangeRequest.newInstance()
         parameters.forEach { (key, value) ->

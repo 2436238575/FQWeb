@@ -5,6 +5,7 @@ import me.fycz.fqweb.utils.GlobalApp
 import me.fycz.fqweb.utils.findClass
 import me.fycz.fqweb.utils.findClassOrNull
 import me.fycz.fqweb.utils.findMethod
+import java.lang.reflect.Modifier
 
 /**
  * @author fengyue
@@ -138,6 +139,24 @@ object Config {
     }
 
     const val rpcModelPackage = "com.dragon.read.rpc.model"
+
+    /**
+     * 评论类 RPC 不在书籍详情的门面类里（523 上详情走 rpc.a.a，评论走 rpc.a.f），
+     * 且不同宿主版本的后缀字母会变，故按"静态方法 a 接收 GetCommentByBookIdRequest"动态定位
+     */
+    val commentRpcApiClz: String by lazy {
+        val requestClz = "$rpcModelPackage.GetCommentByBookIdRequest".findClass(dragonClassloader)
+        ('a'..'z').firstNotNullOfOrNull { suffix ->
+            "$rpcApiPackage.$suffix".takeIf { clzName ->
+                runCatching {
+                    clzName.findClass(dragonClassloader).declaredMethods.any {
+                        Modifier.isStatic(it.modifiers) &&
+                            it.parameterTypes.contentEquals(arrayOf(requestClz))
+                    }
+                }.getOrDefault(false)
+            }
+        } ?: "$rpcApiPackage.f"
+    }
 
     val versionCode: Int by lazy {
         try {
