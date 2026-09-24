@@ -100,7 +100,11 @@ object DragonController {
             return returnData.setErrorMsg("参数book_id不能为空")
         }
         checkCommentPage(page, count)?.let { return returnData.setErrorMsg(it) }
-        returnData.setData(DragonService.getItemComments(itemId, bookId, page, count))
+        val sort = parameters["sort"]?.firstOrNull() ?: COMMENT_SORTS.first()
+        if (sort !in COMMENT_SORTS) {
+            return returnData.setErrorMsg("参数sort仅支持${COMMENT_SORTS.joinToString("/")}")
+        }
+        returnData.setData(DragonService.getItemComments(itemId, bookId, page, count, sort))
         return returnData
     }
 

@@ -84,7 +84,7 @@ url：http://localhost:9999/comment/item?item_id=章节itemId&book_id=书籍ID&p
 ```
 `book_id` 必填；每条评论的 `reply_list` 为内联回复
 
-章评目前只能按热度返回——请求模型里虽有 `sort` 字段，实测 `sort`/`queryCol`/`queryType` 各种组合（`smart_hot`、`time`、`Unfold`、`All` 等）服务端都返回同一批数据，故本接口不提供排序参数
+`sort` 可选，`smart_hot`（最热，默认）或 `time`（最新，按时间倒序）。`source=comment_list` + `queryCol=All` 是排序生效的前提（app 面板即此组合），实现里已固化
 
 ### 获取段评概览
 ```

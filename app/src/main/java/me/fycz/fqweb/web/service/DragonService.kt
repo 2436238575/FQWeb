@@ -129,8 +129,15 @@ object DragonService {
         return callFunction(clzName = Config.commentRpcApiClz, obj = getCommentByBookIdRequest)
     }
 
-    //章评服务端只按热度返回，请求模型里虽有 sort 字段，实测 sort/queryCol/queryType 各种组合都不改变结果，故不暴露
-    fun getItemComments(itemId: String, bookId: String, page: Int, count: Int): Any {
+    //章评面板请求（hook 实测）：source=comment_list + queryCol=All 是排序生效的前提；
+    //app 配对为 smart_hot→Unfold、time→Normal，与段评的 Normal/Unfold 方向相反
+    fun getItemComments(
+        itemId: String,
+        bookId: String,
+        page: Int,
+        count: Int,
+        sort: String = "smart_hot",
+    ): Any {
         val GetCommentByItemIdRequest =
             "${Config.rpcModelPackage}.GetCommentByItemIdRequest".findClass(dragonClassLoader)
         val getCommentByItemIdRequest = GetCommentByItemIdRequest.newInstance()
@@ -138,11 +145,17 @@ object DragonService {
         getCommentByItemIdRequest.setObjectField("bookId", bookId)
         getCommentByItemIdRequest.setLongField("offset", (page - 1).toLong() * count)
         getCommentByItemIdRequest.setLongField("count", count.toLong())
-        //needReply 才会带上每条评论的内联回复；queryCol 限定只取评论本身
+        //needReply 才会带上每条评论的内联回复
         getCommentByItemIdRequest.setBooleanField("needReply", true)
+        getCommentByItemIdRequest.setObjectField("source", "comment_list")
+        getCommentByItemIdRequest.setObjectField("sort", sort)
         getCommentByItemIdRequest.setObjectField(
             "queryCol",
-            commentEnum("QueryCollection", "OnlyComment")
+            commentEnum("QueryCollection", "All")
+        )
+        getCommentByItemIdRequest.setObjectField(
+            "queryType",
+            commentEnum("CommentQueryType", if (sort == "smart_hot") "Unfold" else "Normal")
         )
         return callFunction(clzName = Config.commentRpcApiClz, obj = getCommentByItemIdRequest)
     }
