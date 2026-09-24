@@ -15,6 +15,8 @@ object DragonController {
     private const val DEFAULT_COMMENT_COUNT = 20
     private const val MAX_COMMENT_COUNT = 50
     private val COMMENT_SORTS = listOf("smart_hot", "time")
+    private const val ITEM_VERSION_TIP =
+        "参数item_version不能为空，取自/content返回的data.data.novel_data.version"
 
     fun search(parameters: Map<String, List<String>>): ReturnData {
         val keyword = parameters["query"]?.firstOrNull()
@@ -92,6 +94,51 @@ object DragonController {
         }
         checkCommentPage(page, count)?.let { return returnData.setErrorMsg(it) }
         returnData.setData(DragonService.getItemComments(itemId, bookId, page, count))
+        return returnData
+    }
+
+    fun paraComment(parameters: Map<String, List<String>>): ReturnData {
+        val bookId = parameters["book_id"]?.firstOrNull()
+        val itemId = parameters["item_id"]?.firstOrNull()
+        val itemVersion = parameters["item_version"]?.firstOrNull()
+        val paraIndex = parameters["para_index"]?.firstOrNull()?.toIntOrNull()
+        val page = parameters["page"]?.firstOrNull()?.toIntOrNull() ?: 1
+        val count = parameters["count"]?.firstOrNull()?.toIntOrNull() ?: DEFAULT_COMMENT_COUNT
+        val returnData = ReturnData()
+        if (bookId.isNullOrEmpty()) {
+            return returnData.setErrorMsg("参数book_id不能为空")
+        }
+        if (itemId.isNullOrEmpty()) {
+            return returnData.setErrorMsg("参数item_id不能为空")
+        }
+        if (itemVersion.isNullOrEmpty()) {
+            return returnData.setErrorMsg(ITEM_VERSION_TIP)
+        }
+        if (paraIndex == null || paraIndex < 0) {
+            return returnData.setErrorMsg("参数para_index不能为空或非法")
+        }
+        checkCommentPage(page, count)?.let { return returnData.setErrorMsg(it) }
+        returnData.setData(
+            DragonService.getParaComments(bookId, itemId, paraIndex, page, count, itemVersion)
+        )
+        return returnData
+    }
+
+    fun paraCommentList(parameters: Map<String, List<String>>): ReturnData {
+        val bookId = parameters["book_id"]?.firstOrNull()
+        val itemId = parameters["item_id"]?.firstOrNull()
+        val itemVersion = parameters["item_version"]?.firstOrNull()
+        val returnData = ReturnData()
+        if (bookId.isNullOrEmpty()) {
+            return returnData.setErrorMsg("参数book_id不能为空")
+        }
+        if (itemId.isNullOrEmpty()) {
+            return returnData.setErrorMsg("参数item_id不能为空")
+        }
+        if (itemVersion.isNullOrEmpty()) {
+            return returnData.setErrorMsg(ITEM_VERSION_TIP)
+        }
+        returnData.setData(DragonService.getParaCommentIndex(bookId, itemId, itemVersion))
         return returnData
     }
 

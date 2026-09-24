@@ -146,6 +146,39 @@ object DragonService {
         return callFunction(clzName = Config.commentRpcApiClz, obj = getCommentByItemIdRequest)
     }
 
+    //段评：宿主按 paraIndex 取某一段的段评，paraIndex/count/offset 在该模型里都是 Int
+    //itemVersion 取自 /content 响应的 data.data.novel_data.version，缺了服务端会拒绝
+    fun getParaComments(
+        bookId: String,
+        itemId: String,
+        paraIndex: Int,
+        page: Int,
+        count: Int,
+        itemVersion: String,
+    ): Any {
+        val GetIdeaCommentListRequest =
+            "${Config.rpcModelPackage}.GetIdeaCommentListRequest".findClass(dragonClassLoader)
+        val getIdeaCommentListRequest = GetIdeaCommentListRequest.newInstance()
+        getIdeaCommentListRequest.setObjectField("bookId", bookId)
+        getIdeaCommentListRequest.setObjectField("itemId", itemId)
+        getIdeaCommentListRequest.setIntField("paraIndex", paraIndex)
+        getIdeaCommentListRequest.setIntField("offset", (page - 1) * count)
+        getIdeaCommentListRequest.setIntField("count", count)
+        getIdeaCommentListRequest.setObjectField("itemVersion", itemVersion)
+        return callFunction(clzName = Config.commentRpcApiClz, obj = getIdeaCommentListRequest)
+    }
+
+    //段评概览：返回 paraIndex -> 该段段评数据（含 ideaCount），用于知道哪些段落有段评
+    fun getParaCommentIndex(bookId: String, itemId: String, itemVersion: String): Any {
+        val GetIdeaListRequest =
+            "${Config.rpcModelPackage}.GetIdeaListRequest".findClass(dragonClassLoader)
+        val getIdeaListRequest = GetIdeaListRequest.newInstance()
+        getIdeaListRequest.setObjectField("bookId", bookId)
+        getIdeaListRequest.setObjectField("itemId", itemId)
+        getIdeaListRequest.setObjectField("itemVersion", itemVersion)
+        return callFunction(clzName = Config.commentRpcApiClz, obj = getIdeaListRequest)
+    }
+
     //枚举常量名在 rpc.model 下未被混淆，按名取；取不到时留空交由宿主按默认值处理
     private fun commentEnum(clzName: String, name: String): Any? {
         val value = "${Config.rpcModelPackage}.$clzName"
@@ -155,7 +188,8 @@ object DragonService {
         return value
     }
 
-    fun bookMall(parameters: Map<String, MutableList<String>>): Any {        val GetBookMallCellChangeRequest =
+    fun bookMall(parameters: Map<String, MutableList<String>>): Any {
+        val GetBookMallCellChangeRequest =
             "${Config.rpcModelPackage}.GetBookMallCellChangeRequest".findClass(dragonClassLoader)
         val getBookMallCellChangeRequest = GetBookMallCellChangeRequest.newInstance()
         parameters.forEach { (key, value) ->

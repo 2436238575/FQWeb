@@ -84,6 +84,22 @@ url：http://localhost:9999/comment/item?item_id=章节itemId&book_id=书籍ID&p
 ```
 `book_id` 必填；每条评论的 `reply_list` 为内联回复
 
+### 获取段评概览
+```
+method：GET
+url：http://localhost:9999/comment/para/list?book_id=书籍ID&item_id=章节itemId&item_version=章节版本
+```
+返回的 `idea_data` 是 `para_index` → 该段段评数据（`idea_count` 为段评条数），据此可知哪些段落有段评
+
+### 获取段评
+```
+method：GET
+url：http://localhost:9999/comment/para?book_id=书籍ID&item_id=章节itemId&para_index=段落序号&item_version=章节版本
+```
+段评（段落评论）按段取；`para_index` 是正文按换行切分后的行号，从 0 开始，即 `/content` 返回的 `data.data.content` 用 `\n` 切分后的下标
+
+段评两个接口的 `item_version` 均必填，取自 `/content` 返回的 `data.data.novel_data.version`
+
 ### 获取发现书籍
 ```
 method：GET

@@ -34,6 +34,8 @@ class HttpServer(port: Int) : NanoHTTPD(port) {
                     "/content" -> DragonController.content(parameters)
                     "/comment" -> DragonController.comment(parameters)
                     "/comment/item" -> DragonController.itemComment(parameters)
+                    "/comment/para" -> DragonController.paraComment(parameters)
+                    "/comment/para/list" -> DragonController.paraCommentList(parameters)
                     "/reading/bookapi/bookmall/cell/change/v1/" -> DragonController.bookMall(parameters)
                     "/reading/bookapi/new_category/landing/v/" -> DragonController.newCategory(parameters)
                     else -> null
