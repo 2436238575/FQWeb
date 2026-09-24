@@ -129,6 +129,7 @@ object DragonService {
         return callFunction(clzName = Config.commentRpcApiClz, obj = getCommentByBookIdRequest)
     }
 
+    //章评服务端只按热度返回，请求模型里虽有 sort 字段，实测 sort/queryCol/queryType 各种组合都不改变结果，故不暴露
     fun getItemComments(itemId: String, bookId: String, page: Int, count: Int): Any {
         val GetCommentByItemIdRequest =
             "${Config.rpcModelPackage}.GetCommentByItemIdRequest".findClass(dragonClassLoader)
@@ -155,6 +156,7 @@ object DragonService {
         page: Int,
         count: Int,
         itemVersion: String,
+        sort: String? = null,
     ): Any {
         val GetIdeaCommentListRequest =
             "${Config.rpcModelPackage}.GetIdeaCommentListRequest".findClass(dragonClassLoader)
@@ -165,6 +167,10 @@ object DragonService {
         getIdeaCommentListRequest.setIntField("offset", (page - 1) * count)
         getIdeaCommentListRequest.setIntField("count", count)
         getIdeaCommentListRequest.setObjectField("itemVersion", itemVersion)
+        //段评的 sort 是 CommentSortType 枚举（Hot/TimeAsc/TimeDesc/ReplyTimeDesc）
+        if (!sort.isNullOrEmpty()) {
+            getIdeaCommentListRequest.setObjectField("sort", commentEnum("CommentSortType", sort))
+        }
         return callFunction(clzName = Config.commentRpcApiClz, obj = getIdeaCommentListRequest)
     }
 

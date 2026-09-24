@@ -84,6 +84,8 @@ url：http://localhost:9999/comment/item?item_id=章节itemId&book_id=书籍ID&p
 ```
 `book_id` 必填；每条评论的 `reply_list` 为内联回复
 
+章评目前只能按热度返回——请求模型里虽有 `sort` 字段，实测 `sort`/`queryCol`/`queryType` 各种组合（`smart_hot`、`time`、`Unfold`、`All` 等）服务端都返回同一批数据，故本接口不提供排序参数
+
 ### 获取段评概览
 ```
 method：GET
@@ -94,9 +96,11 @@ url：http://localhost:9999/comment/para/list?book_id=书籍ID&item_id=章节ite
 ### 获取段评
 ```
 method：GET
-url：http://localhost:9999/comment/para?book_id=书籍ID&item_id=章节itemId&para_index=段落序号&item_version=章节版本
+url：http://localhost:9999/comment/para?book_id=书籍ID&item_id=章节itemId&para_index=段落序号&item_version=章节版本&sort=排序
 ```
 段评（段落评论）按段取；`para_index` 是正文按换行切分后的行号，从 0 开始，即 `/content` 返回的 `data.data.content` 用 `\n` 切分后的下标
+
+`sort` 可选，`hot`（最热，默认）或 `time_desc`（按时间倒序）。服务端目前只区分这两种：`CommentSortType` 里的 `TimeAsc`、`ReplyTimeDesc` 实测返回结果与 `time_desc` 完全相同，故未开放
 
 段评两个接口的 `item_version` 均必填，取自 `/content` 返回的 `data.data.novel_data.version`
 

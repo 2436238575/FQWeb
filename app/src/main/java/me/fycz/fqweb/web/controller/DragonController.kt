@@ -18,6 +18,13 @@ object DragonController {
     private const val ITEM_VERSION_TIP =
         "参数item_version不能为空，取自/content返回的data.data.novel_data.version"
 
+    //段评排序：URL 用下划线风格，映射到宿主 CommentSortType 的枚举常量名
+    //实测服务端只区分 hot 与按时间倒序，TimeAsc/ReplyTimeDesc 结果与 time_desc 相同，故不暴露
+    private val PARA_SORTS = linkedMapOf(
+        "hot" to "Hot",
+        "time_desc" to "TimeDesc",
+    )
+
     fun search(parameters: Map<String, List<String>>): ReturnData {
         val keyword = parameters["query"]?.firstOrNull()
         val page = parameters["page"]?.firstOrNull()?.toIntOrNull() ?: 1
@@ -118,8 +125,15 @@ object DragonController {
             return returnData.setErrorMsg("参数para_index不能为空或非法")
         }
         checkCommentPage(page, count)?.let { return returnData.setErrorMsg(it) }
+        val sort = parameters["sort"]?.firstOrNull()
+        if (sort != null && PARA_SORTS[sort] == null) {
+            return returnData.setErrorMsg("参数sort仅支持${PARA_SORTS.keys.joinToString("/")}")
+        }
         returnData.setData(
-            DragonService.getParaComments(bookId, itemId, paraIndex, page, count, itemVersion)
+            DragonService.getParaComments(
+                bookId, itemId, paraIndex, page, count, itemVersion,
+                sort = sort?.let { PARA_SORTS[it] },
+            )
         )
         return returnData
     }
