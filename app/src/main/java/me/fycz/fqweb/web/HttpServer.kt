@@ -37,6 +37,7 @@ class HttpServer(port: Int) : NanoHTTPD(port) {
                     "/comment/para" -> DragonController.paraComment(parameters)
                     "/comment/para/list" -> DragonController.paraCommentList(parameters)
                     "/content/image" -> DragonController.contentImage(parameters)
+                    "/content/rich" -> DragonController.contentRich(parameters)
                     "/reading/bookapi/bookmall/cell/change/v1/" -> DragonController.bookMall(parameters)
                     "/reading/bookapi/new_category/landing/v/" -> DragonController.newCategory(parameters)
                     else -> null
@@ -50,20 +51,30 @@ class HttpServer(port: Int) : NanoHTTPD(port) {
             if (returnData == null) {
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_HTML, defaultPage)
             }
-            val response = if (returnData.data is Bitmap) {
-                val outputStream = ByteArrayOutputStream()
-                (returnData.data as Bitmap).compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-                val byteArray = outputStream.toByteArray()
-                outputStream.close()
-                val inputStream = ByteArrayInputStream(byteArray)
-                newFixedLengthResponse(
+            val response = when (val data = returnData.data) {
+                is Bitmap -> {
+                    val outputStream = ByteArrayOutputStream()
+                    data.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                    val byteArray = outputStream.toByteArray()
+                    outputStream.close()
+                    val inputStream = ByteArrayInputStream(byteArray)
+                    newFixedLengthResponse(
+                        Response.Status.OK,
+                        "image/png",
+                        inputStream,
+                        byteArray.size.toLong()
+                    )
+                }
+                is RawResponse -> newFixedLengthResponse(
                     Response.Status.OK,
-                    "image/png",
-                    inputStream,
-                    byteArray.size.toLong()
+                    data.mimeType,
+                    data.body
                 )
-            } else {
-                newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", JsonUtils.toJson(returnData))
+                else -> newFixedLengthResponse(
+                    Response.Status.OK,
+                    "application/json; charset=utf-8",
+                    JsonUtils.toJson(returnData)
+                )
             }
             return response
         } catch (e: Throwable) {

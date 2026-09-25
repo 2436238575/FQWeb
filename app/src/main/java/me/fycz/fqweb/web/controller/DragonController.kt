@@ -1,6 +1,7 @@
 package me.fycz.fqweb.web.controller
 
 import me.fycz.fqweb.utils.getObjectField
+import me.fycz.fqweb.web.RawResponse
 import me.fycz.fqweb.web.ReturnData
 import me.fycz.fqweb.web.service.DragonService
 
@@ -178,6 +179,21 @@ object DragonController {
         }
         returnData.setData(DragonService.getChapterImages(itemId))
         return returnData
+    }
+
+    //解密后的富文本 XHTML（含配图）；raw=1 直接吐 XHTML 本体，否则包在 JSON 的 data.xhtml 里
+    fun contentRich(parameters: Map<String, List<String>>): ReturnData {
+        val itemId = parameters["item_id"]?.firstOrNull()
+        val returnData = ReturnData()
+        if (itemId.isNullOrEmpty()) {
+            return returnData.setErrorMsg("参数item_id不能为空")
+        }
+        val xhtml = DragonService.getChapterRichContent(itemId).orEmpty()
+        return if (parameters["raw"]?.firstOrNull() == "1") {
+            returnData.setData(RawResponse(xhtml, "application/xhtml+xml; charset=utf-8"))
+        } else {
+            returnData.setData(linkedMapOf("item_id" to itemId, "xhtml" to xhtml))
+        }
     }
 
     fun bookMall(parameters: Map<String, MutableList<String>>): ReturnData {

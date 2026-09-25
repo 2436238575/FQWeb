@@ -247,7 +247,7 @@ object DragonService {
     }
 
     //取解密后的富文本 XHTML；密钥由宿主按 keyVersion 存在 MMKV，缺失时先让宿主解码一次以触发密钥注册
-    private fun getChapterRichContent(itemId: String): String? {
+    fun getChapterRichContent(itemId: String): String? {
         val request = "${Config.rpcModelPackage}.FullRequest".findClass(dragonClassLoader)
             .newInstance().apply {
                 setObjectField("itemId", itemId)

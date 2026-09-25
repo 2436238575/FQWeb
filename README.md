@@ -115,6 +115,15 @@ url：http://localhost:9999/content/image?item_id=章节itemId
 - 没有配图的章节返回 `has_image:false` 与空数组，`isSuccess` 仍为 `true`——**"这一章没配图"与"接口失败"用 `isSuccess` 区分，不会用报错表示没配图**
 - 图片 URL 带时效签名（`x-expires`），会过期，需要时重新调用本接口获取
 
+### 获取章节富文本
+```
+method：GET
+url：http://localhost:9999/content/rich?item_id=章节itemId
+```
+宿主解密后的富文本 XHTML（EPUB 风格），正文段落与配图都在里面，可直接交给 WebView 渲染：段落带 `idx` 属性，配图为 `<img src=... img-width=... img-height=...>`，图片说明为 `<p class="pictureDesc">`
+
+默认包在 JSON 的 `data.xhtml` 里；加 `raw=1` 则直接返回 `application/xhtml+xml` 本体（不套 JSON 外壳），适合阅读器直接加载
+
 ### 获取发现书籍
 ```
 method：GET
