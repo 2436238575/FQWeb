@@ -104,6 +104,17 @@ url：http://localhost:9999/comment/para?book_id=书籍ID&item_id=章节itemId&p
 
 段评两个接口的 `item_version` 均必填，取自 `/content` 返回的 `data.data.novel_data.version`
 
+### 获取章节配图
+```
+method：GET
+url：http://localhost:9999/content/image?item_id=章节itemId
+```
+章节内的插画/配图。返回 `has_image` 与 `images` 数组，每张图带 `url`、`width`、`height`、`para_index`、`caption`：
+
+- `para_index` 是插入位置，即把 `/content` 返回的 `data.data.content` 按换行切分后，图片应插在该行之前（从 0 开始）。图片不一定在章末，位置由作者决定
+- 没有配图的章节返回 `has_image:false` 与空数组，`isSuccess` 仍为 `true`——**"这一章没配图"与"接口失败"用 `isSuccess` 区分，不会用报错表示没配图**
+- 图片 URL 带时效签名（`x-expires`），会过期，需要时重新调用本接口获取
+
 ### 获取发现书籍
 ```
 method：GET

@@ -25,6 +25,11 @@ import me.fycz.fqweb.utils.setShortField
  */
 object DragonService {
 
+    private const val CRYPT_KEY_STORE = "prefix_public_crypt_key_kv_0"
+    private val TEXT_P_REGEX = Regex("<p\\b([^>]*)>.*?</p>", RegexOption.DOT_MATCHES_ALL)
+    private val IMG_REGEX = Regex("<img\\b([^>]*)>")
+    private val CAPTION_REGEX = Regex("class=\"pictureDesc\"[^>]*>(.*?)<")
+
     private val dragonClassLoader: ClassLoader by lazy {
         GlobalApp.getClassloader()
     }
@@ -82,11 +87,17 @@ object DragonService {
         )
     }
 
-    fun getContent(itemId: String): Any {
+    fun getContent(itemId: String, novelTextType: String? = null): Any {
         val FullRequest =
             "${Config.rpcModelPackage}.FullRequest".findClass(dragonClassLoader)
         val fullRequest = FullRequest.newInstance()
         fullRequest.setObjectField("itemId", itemId)
+        if (!novelTextType.isNullOrEmpty()) {
+            fullRequest.setObjectField(
+                "novelTextType",
+                commentEnum("NovelTextType", novelTextType)
+            )
+        }
         return callFunction(
             clzName = Config.readerFullRequestClz,
             obj = fullRequest
@@ -197,6 +208,84 @@ object DragonService {
         getIdeaListRequest.setObjectField("itemVersion", itemVersion)
         return callFunction(clzName = Config.commentRpcApiClz, obj = getIdeaListRequest)
     }
+
+    //章节配图：RichText 正文是加密的 XHTML，图片以 <img src=.. img-width=.. img-height=../> 出现，
+    //用户配图外面还套 <div data-fanqie-type="image">、后面跟 <p class="pictureDesc">配图说明</p>，出版书插图没有外层 div
+    //para_index 按"图片之前的正文段落数"计，与 /content 的 content 按换行切分后的行号一致
+    fun getChapterImages(itemId: String): Map<String, Any?> {
+        val xhtml = getChapterRichContent(itemId)
+        val images = mutableListOf<Map<String, Any?>>()
+        if (!xhtml.isNullOrEmpty()) {
+            //正文段落（不含图片行与图片说明行）的结束位置，用于定位图片插在哪一段之后
+            val paragraphEnds = TEXT_P_REGEX.findAll(xhtml)
+                .filterNot { it.groupValues[1].contains("class=\"picture") }
+                .map { it.range.last }
+                .toList()
+            IMG_REGEX.findAll(xhtml).forEach { m ->
+                val attrs = m.groupValues[1]
+                val pos = m.range.first
+                val caption = CAPTION_REGEX.find(xhtml, pos)?.let {
+                    //说明行紧跟在图片之后（同一图片块内）才算
+                    if (it.range.first - pos < 600) xmlUnescape(it.groupValues[1]) else null
+                }
+                images.add(
+                    linkedMapOf(
+                        "url" to xmlAttr(attrs, "src"),
+                        "width" to xmlAttr(attrs, "img-width")?.toIntOrNull(),
+                        "height" to xmlAttr(attrs, "img-height")?.toIntOrNull(),
+                        "para_index" to paragraphEnds.count { it < pos },
+                        "caption" to caption,
+                    )
+                )
+            }
+        }
+        return linkedMapOf(
+            "item_id" to itemId,
+            "has_image" to images.isNotEmpty(),
+            "images" to images,
+        )
+    }
+
+    //取解密后的富文本 XHTML；密钥由宿主按 keyVersion 存在 MMKV，缺失时先让宿主解码一次以触发密钥注册
+    private fun getChapterRichContent(itemId: String): String? {
+        val request = "${Config.rpcModelPackage}.FullRequest".findClass(dragonClassLoader)
+            .newInstance().apply {
+                setObjectField("itemId", itemId)
+                setObjectField("novelTextType", commentEnum("NovelTextType", "RichText"))
+            }
+        val item = callFunction(clzName = Config.readerFullRequestClz, obj = request)
+            .getObjectField("data") ?: throw IllegalStateException("章节内容为空")
+        val blob = item.getObjectField("content")?.toString().orEmpty()
+        if (blob.isEmpty()) return null
+        val keyVersion = (item.getObjectField("keyVersion") as? Int) ?: 0
+        var key = readCryptKey(keyVersion)
+        if (key.isNullOrEmpty()) {
+            runCatching { decodeContent(item) }
+            key = readCryptKey(keyVersion)
+        }
+        if (key.isNullOrEmpty()) throw IllegalStateException("章节密钥缺失，无法解析配图")
+        val bytes = "com.dragon.read.reader.d.a".findClass(dragonClassLoader)
+            .callStaticMethod("a", blob, key) as? ByteArray
+        return bytes?.toString(Charsets.UTF_8)
+    }
+
+    private fun readCryptKey(keyVersion: Int): String? {
+        val crypt = "com.dragon.read.reader.d.a".findClass(dragonClassLoader)
+        val name = runCatching { crypt.callStaticMethod("a", keyVersion.toLong())?.toString() }
+            .getOrNull() ?: "key_$keyVersion"
+        return runCatching {
+            "com.tencent.mmkv.MMKV".findClass(dragonClassLoader)
+                .callStaticMethod("mmkvWithID", CRYPT_KEY_STORE)
+                ?.callMethod("getString", name, null) as? String
+        }.getOrNull()
+    }
+
+    private fun xmlAttr(attrs: String, name: String): String? =
+        Regex("$name=\"([^\"]*)\"").find(attrs)?.groupValues?.get(1)?.let { xmlUnescape(it) }
+
+    private fun xmlUnescape(s: String): String = s
+        .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+        .replace("&quot;", "\"").replace("&apos;", "'")
 
     //枚举常量名在 rpc.model 下未被混淆，按名取；取不到时留空交由宿主按默认值处理
     private fun commentEnum(clzName: String, name: String): Any? {

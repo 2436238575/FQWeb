@@ -62,7 +62,7 @@ object DragonController {
         if (itemId.isNullOrEmpty()) {
             return returnData.setErrorMsg("参数item_id不能为空")
         }
-        val content = DragonService.getContent(itemId)
+        val content = DragonService.getContent(itemId, parameters["text_type"]?.firstOrNull())
         val data = content.getObjectField("data") ?: return returnData.setErrorMsg("章节内容为空")
         DragonService.decodeContent(data)
         returnData.setData(content)
@@ -164,6 +164,20 @@ object DragonController {
         page < 1 -> "参数page不能小于1"
         count !in 1..MAX_COMMENT_COUNT -> "参数count需在1-${MAX_COMMENT_COUNT}之间"
         else -> null
+    }
+
+
+
+
+
+    fun contentImage(parameters: Map<String, List<String>>): ReturnData {
+        val itemId = parameters["item_id"]?.firstOrNull()
+        val returnData = ReturnData()
+        if (itemId.isNullOrEmpty()) {
+            return returnData.setErrorMsg("参数item_id不能为空")
+        }
+        returnData.setData(DragonService.getChapterImages(itemId))
+        return returnData
     }
 
     fun bookMall(parameters: Map<String, MutableList<String>>): ReturnData {
