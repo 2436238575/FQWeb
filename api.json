@@ -1,0 +1,3540 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "FQWeb 番茄小说 Web API",
+    "version": "0.2.4",
+    "description": "FQWeb 是注入番茄小说（com.dragon.read）宿主进程的 Xposed 模块，在宿主内启动 NanoHTTPD 对外提供 HTTP API。所有 `data` 内层结构均为**番茄宿主 RPC 响应的原样透传**。\n\n## 通用约定\n\n- **统一响应壳**：成功 `{\"isSuccess\":true,\"errorMsg\":\"\",\"data\":...}`；失败 `{\"isSuccess\":false,\"errorMsg\":\"原因\"}`（`data` 字段整体缺省）。**业务成败都是 HTTP 200**，不要按状态码判断成败，以 `isSuccess` 为准。\n- **data 外层**：除 /content/image、/content/rich 外，`data` 是宿主 RPC 响应 `{code:\"0\", message:\"SUCCESS\", data:{...}}` 的透传。\n- 文档 schema 列出的是常用/关键字段，透传对象一律开放 `additionalProperties`，未列出的字段会原样返回，请按需取用。\n- 宿主版本不匹配等致命错误同样返回 HTTP 200 + `isSuccess:false`，errorMsg 形如“宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web”。\n- 请求未注册的路径时返回 NanoHTTPD 的 **404 text/html** 页面。\n- 全部接口仅 GET，无鉴权；默认端口 9999（CORS 已移除，浏览器跨域请在反向代理层加响应头）。\n- ID 类字段（book_id / item_id / version 等）在响应里是**字符串**；个别字段（如 cell_view.cell_id）是 JSON 数字，JS 侧注意大数精度，优先用 `*_str` 形式。\n\n## 典型调用链\n\n1. `/search?query=关键字` → 取 `book_id`\n2. `/info`（详情）或 `/catalog`（目录，取每章 `item_id` 与 `version`）\n3. `/content?item_id=` → 正文（`novel_data.version` 即 `item_version`；`novel_data.next_item_id` 顺序翻章）\n4. 评论：`/comment`（书评）、`/comment/item`（章评）、`/comment/para/list` + `/comment/para`（段评）\n5. 富内容：`/content/image`（配图）、`/content/rich`（解密富文本 XHTML，可直接 WebView 渲染）"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:9999",
+      "description": "本机（宿主进程内嵌服务，端口可在模块设置里修改）"
+    },
+    {
+      "url": "http://192.168.100.99:9999",
+      "description": "局域网开发设备"
+    }
+  ],
+  "tags": [
+    {
+      "name": "书籍",
+      "description": "搜索 / 详情 / 目录"
+    },
+    {
+      "name": "章节内容",
+      "description": "正文 / 配图 / 富文本"
+    },
+    {
+      "name": "评论",
+      "description": "书评 / 章评 / 段评"
+    },
+    {
+      "name": "发现",
+      "description": "分类浏览与书城信息流（参数与番茄官方接口一致，透传）"
+    }
+  ],
+  "paths": {
+    "/search": {
+      "get": {
+        "tags": [
+          "书籍"
+        ],
+        "summary": "搜索书籍",
+        "description": "按关键字搜索番茄书城。结果在 `data.search_tabs[*].data[*].book_data[*]`，\n取 `book_id` 用于 /info、/catalog，取 `first_chapter_item_id` 可直接开始阅读。\n每页约 10 条，翻页用 page。",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "description": "搜索关键字",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "页码，从 1 开始",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "example": "0",
+                          "title": "业务码",
+                          "description": "宿主 RPC 业务码，0 为成功"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "SUCCESS",
+                          "title": "消息",
+                          "description": "宿主 RPC 消息，SUCCESS 表示成功"
+                        },
+                        "selected_tab_idx": {
+                          "type": "integer",
+                          "description": "默认选中的搜索 tab 下标",
+                          "title": "选中页签下标"
+                        },
+                        "search_tabs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string",
+                                "title": "页签名",
+                                "description": "tab 名，如“书城”"
+                              },
+                              "tab_type": {
+                                "type": "string",
+                                "title": "页签类型",
+                                "description": "页签类型枚举值（宿主原始字段）"
+                              },
+                              "has_more": {
+                                "type": "boolean",
+                                "title": "是否还有更多",
+                                "description": "是否还有下一页"
+                              },
+                              "next_offset": {
+                                "type": "integer",
+                                "description": "下一页偏移（搜索结果每页约 10 条）",
+                                "title": "下一页偏移"
+                              },
+                              "passback": {
+                                "type": "string",
+                                "title": "回传偏移量",
+                                "description": "翻页回传偏移（与 next_offset 配合，宿主原始字段）"
+                              },
+                              "search_id": {
+                                "type": "string",
+                                "title": "搜索会话ID",
+                                "description": "本次搜索的会话 ID"
+                              },
+                              "query": {
+                                "type": "string",
+                                "description": "回显的搜索词",
+                                "title": "搜索词"
+                              },
+                              "data": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "cell_id": {
+                                      "type": "integer",
+                                      "title": "卡片ID（数字）",
+                                      "description": "结果卡片 ID（JSON 数字，注意 JS 大数精度，配套 cell_id_str）"
+                                    },
+                                    "cell_id_str": {
+                                      "type": "string",
+                                      "title": "卡片ID字符串",
+                                      "description": "卡片 ID 的字符串形式，优先使用"
+                                    },
+                                    "cell_name": {
+                                      "type": "string",
+                                      "title": "坑位名称",
+                                      "description": "坑位名称（多为空）"
+                                    },
+                                    "cell_abstract": {
+                                      "type": "string",
+                                      "title": "卡片摘要",
+                                      "description": "卡片摘要文案"
+                                    },
+                                    "show_type": {
+                                      "type": "string",
+                                      "title": "展示类型",
+                                      "description": "卡片展示样式类型（宿主原始字段）"
+                                    },
+                                    "use_recommend": {
+                                      "type": "boolean",
+                                      "title": "推荐样式标记",
+                                      "description": "是否走推荐样式展示"
+                                    },
+                                    "book_data": {
+                                      "type": "array",
+                                      "items": {
+                                        "$ref": "#/components/schemas/Book"
+                                      },
+                                      "description": "本卡片下的书籍列表（通常 1 本）",
+                                      "title": "书籍列表"
+                                    }
+                                  },
+                                  "description": "搜索结果卡片（一卡一书）",
+                                  "additionalProperties": true
+                                },
+                                "title": "结果卡片列表",
+                                "description": "业务数据"
+                              }
+                            },
+                            "description": "搜索结果 tab",
+                            "additionalProperties": true
+                          },
+                          "title": "搜索结果页签",
+                          "description": "搜索结果页签列表"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "selected_tab_idx": 0,
+                        "search_tabs": [
+                          {
+                            "title": "书城",
+                            "tab_type": "1",
+                            "has_more": true,
+                            "next_offset": 10,
+                            "passback": "0",
+                            "search_id": "7156291180442917411",
+                            "query": "剑来",
+                            "data": [
+                              {
+                                "cell_id": 7156291180442917411,
+                                "cell_name": "",
+                                "show_type": "110",
+                                "use_recommend": true,
+                                "book_data": [
+                                  {
+                                    "book_id": "7038808223788305445",
+                                    "book_name": "剑种",
+                                    "author": "许、青",
+                                    "abstract": "单女主，不刀。\\n十六岁的少年背着个剑匣子，第一次游荡天下。",
+                                    "category": "传统玄幻",
+                                    "thumb_url": "https://p6-novel.byteimg.com/origin/novel-static/f767949492bcf69dac43dcb5a4626c0e",
+                                    "gender": "1",
+                                    "creation_status": "0",
+                                    "word_number": "789866",
+                                    "serial_count": "502",
+                                    "score": "9.7",
+                                    "first_chapter_item_id": "7054738209301135902"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数query不能为空"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "searchBooks"
+      }
+    },
+    "/info": {
+      "get": {
+        "tags": [
+          "书籍"
+        ],
+        "summary": "获取书籍详情",
+        "description": "书籍详情（含章节定位字段）。`data.data` 即书籍对象。\n第一章用 `first_chapter_item_id`，最新章用 `last_chapter_item_id`。",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": true,
+            "description": "书籍 ID（纯数字字符串，取自 /search）",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "宿主 RPC 透传结构（code=0 / message=SUCCESS 表示宿主调用成功）",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "宿主 RPC 业务码，0 为成功",
+                          "title": "业务码"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "SUCCESS",
+                          "title": "消息",
+                          "description": "宿主 RPC 消息，SUCCESS 表示成功"
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/Book"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "book_id": "7038808223788305445",
+                          "book_name": "剑种",
+                          "author": "许、青",
+                          "abstract": "单女主，不刀。",
+                          "category": "传统玄幻",
+                          "gender": "1",
+                          "creation_status": "0",
+                          "word_number": "789866",
+                          "serial_count": "502",
+                          "score": "9.7",
+                          "read_count": "139360",
+                          "first_chapter_item_id": "7054738209301135902",
+                          "first_chapter_title": "第1章 初遇",
+                          "last_chapter_item_id": "7366774625238160456",
+                          "last_chapter_title": "第502章 剑种",
+                          "thumb_url": "https://p6-novel.byteimg.com/novel-static/xxx~tplv-shrink:620:0.image",
+                          "tags": "",
+                          "in_bookshelf": "1",
+                          "read_progress": "13",
+                          "default_tab": "0"
+                        }
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数book_id不能为空或非法"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getBookInfo"
+      }
+    },
+    "/catalog": {
+      "get": {
+        "tags": [
+          "书籍"
+        ],
+        "summary": "获取书籍目录",
+        "description": "完整目录。`data.data.item_data_list` 为章节列表（含分卷），\n每章的 `item_id` 用于 /content，`version` 用于段评接口的 `item_version`。",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": true,
+            "description": "书籍 ID（纯数字字符串，取自 /search）",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "宿主 RPC 透传结构（code=0 / message=SUCCESS 表示宿主调用成功）",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "宿主 RPC 业务码，0 为成功",
+                          "title": "业务码"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "SUCCESS",
+                          "title": "消息",
+                          "description": "宿主 RPC 消息，SUCCESS 表示成功"
+                        },
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "book_info": {
+                              "$ref": "#/components/schemas/Book"
+                            },
+                            "item_data_list": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/components/schemas/CatalogItem"
+                              },
+                              "description": "详细目录，每章含 version（段评接口 item_version 取自这里）",
+                              "title": "章节列表"
+                            },
+                            "catalog_data": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "catalog_id": {
+                                    "type": "string",
+                                    "description": "目录条目 ID（与 item_id 同值）",
+                                    "title": "目录条目ID"
+                                  },
+                                  "catalog_title": {
+                                    "type": "string",
+                                    "title": "章节标题"
+                                  },
+                                  "item_id": {
+                                    "type": "string",
+                                    "description": "章节 itemId",
+                                    "title": "章节ID"
+                                  }
+                                },
+                                "description": "轻量目录条目",
+                                "additionalProperties": true
+                              },
+                              "description": "轻量目录列表（部分书籍才返回；优先用 item_data_list）",
+                              "title": "轻量目录列表"
+                            },
+                            "item_list": {
+                              "type": "array",
+                              "items": {
+                                "type": "object"
+                              },
+                              "description": "遗留字段，通常为空数组",
+                              "title": "遗留章节列表"
+                            }
+                          },
+                          "description": "目录数据",
+                          "additionalProperties": true,
+                          "title": "业务数据"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "item_data_list": [
+                            {
+                              "item_id": "7054738209301135902",
+                              "title": "第1章 初遇",
+                              "version": "a239e763b6b9572051c0f41d673b1c4a_1_v5",
+                              "volume_name": "第一卷：默认",
+                              "chapter_type": "0",
+                              "content_md5": "a239e763b6b9572051c0f41d673b1c4a",
+                              "first_pass_time": 1642559245
+                            },
+                            {
+                              "item_id": "7054738540428526110",
+                              "title": "第2章 剑匣",
+                              "version": "b239e763b6b9572051c0f41d673b1c4a_1_v5",
+                              "volume_name": "第一卷：默认",
+                              "chapter_type": "0",
+                              "content_md5": "b239e763b6b9572051c0f41d673b1c4a",
+                              "first_pass_time": 1642559295
+                            }
+                          ],
+                          "item_list": []
+                        }
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数book_id不能为空或非法"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getCatalog"
+      }
+    },
+    "/content": {
+      "get": {
+        "tags": [
+          "章节内容"
+        ],
+        "summary": "获取章节正文",
+        "description": "返回**解密后的正文纯文本**，段落以 `\\n` 分隔（与配图接口的 para_index 对齐）。\n`data.data.novel_data.version` 是章节版本，段评接口的 `item_version` 参数取自这里；\n`novel_data.next_item_id` 可用于顺序翻章。",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "query",
+            "required": true,
+            "description": "章节 itemId（取自 /catalog 或 novel_data.next_item_id）",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "text_type",
+            "in": "query",
+            "required": false,
+            "description": "透传宿主 NovelTextType 枚举名（如 Text / RichText）；非法值会被忽略，不传即返回默认纯文本",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "宿主 RPC 透传结构（code=0 / message=SUCCESS 表示宿主调用成功）",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "宿主 RPC 业务码，0 为成功",
+                          "title": "业务码"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "SUCCESS",
+                          "title": "消息",
+                          "description": "宿主 RPC 消息，SUCCESS 表示成功"
+                        },
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "integer",
+                              "description": "0=成功",
+                              "title": "业务码"
+                            },
+                            "title": {
+                              "type": "string",
+                              "title": "章节标题",
+                              "description": "本章标题"
+                            },
+                            "content": {
+                              "type": "string",
+                              "description": "**解密后的正文纯文本，段落以换行分隔**。配图不在其中（见 /content/image、/content/rich）",
+                              "title": "正文内容"
+                            },
+                            "author_speak": {
+                              "type": "string",
+                              "description": "作者的话（可能为空）",
+                              "title": "作者的话"
+                            },
+                            "text_type": {
+                              "type": "string",
+                              "description": "返回的文本类型：\"1\"=纯文本；请求 RichText 时为 \"2\"（仍输出解密后纯文本）",
+                              "title": "文本类型"
+                            },
+                            "crypt_status": {
+                              "type": "integer",
+                              "description": "密文状态（宿主原始字段）",
+                              "title": "加密状态"
+                            },
+                            "key_version": {
+                              "type": "integer",
+                              "description": "解密密钥版本（宿主原始字段）",
+                              "title": "密钥版本"
+                            },
+                            "novel_data": {
+                              "allOf": [
+                                {
+                                  "$ref": "#/components/schemas/Book"
+                                },
+                                {
+                                  "type": "object",
+                                  "description": "本章所属书籍与章节元数据（Book 基础上多出章节字段）",
+                                  "properties": {
+                                    "item_id": {
+                                      "type": "string",
+                                      "description": "本章 itemId",
+                                      "title": "章节ID"
+                                    },
+                                    "title": {
+                                      "type": "string",
+                                      "title": "章节标题",
+                                      "description": "本章标题"
+                                    },
+                                    "version": {
+                                      "type": "string",
+                                      "description": "**章节版本，段评接口 item_version 参数即取这里**",
+                                      "title": "章节版本"
+                                    },
+                                    "group_id": {
+                                      "type": "string",
+                                      "description": "章节组 id",
+                                      "title": "所属组ID"
+                                    },
+                                    "next_item_id": {
+                                      "type": "string",
+                                      "description": "下一章 itemId（为空表示已是最新章）",
+                                      "title": "下一章ID"
+                                    },
+                                    "next_group_id": {
+                                      "type": "string",
+                                      "title": "下一章节组ID"
+                                    },
+                                    "pre_item_id": {
+                                      "type": "string",
+                                      "description": "上一章 itemId",
+                                      "title": "上一章ID"
+                                    },
+                                    "pre_group_id": {
+                                      "type": "string",
+                                      "title": "上一章节组ID"
+                                    },
+                                    "real_chapter_order": {
+                                      "type": "string",
+                                      "description": "章节实际序号（数字字符串）",
+                                      "title": "章节实际序号"
+                                    },
+                                    "content_md5": {
+                                      "type": "string",
+                                      "title": "内容MD5",
+                                      "description": "章节内容 MD5（也是 version 的前缀）"
+                                    },
+                                    "origin_chapter_title": {
+                                      "type": "string",
+                                      "title": "原始章节标题"
+                                    },
+                                    "vid": {
+                                      "type": "string",
+                                      "title": "章节资源ID",
+                                      "description": "宿主原始字段，语义以 App 内展示为准"
+                                    },
+                                    "free_status": {
+                                      "type": "string",
+                                      "title": "免费状态"
+                                    },
+                                    "sale_status": {
+                                      "type": "string",
+                                      "title": "售卖状态"
+                                    },
+                                    "data_rate": {
+                                      "type": "string",
+                                      "title": "数据倍率"
+                                    },
+                                    "custom_total_price": {
+                                      "type": "string",
+                                      "title": "自定义总价"
+                                    }
+                                  },
+                                  "additionalProperties": true
+                                }
+                              ]
+                            }
+                          },
+                          "description": "章节内容",
+                          "additionalProperties": true,
+                          "title": "业务数据"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "code": 0,
+                          "title": "第1章 初遇",
+                          "content": "小雨，淅淅沥沥的下着。\\n许念之独坐在破庙里……",
+                          "author_speak": "",
+                          "text_type": "1",
+                          "crypt_status": 0,
+                          "key_version": 1437507988,
+                          "novel_data": {
+                            "item_id": "7054738209301135902",
+                            "book_id": "7038808223788305445",
+                            "book_name": "剑种",
+                            "title": "第1章 初遇",
+                            "author": "许、青",
+                            "version": "a239e763b6b9572051c0f41d673b1c4a_1_v5",
+                            "next_item_id": "7054738540428526110",
+                            "real_chapter_order": "1",
+                            "word_number": "789866"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数item_id不能为空"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getChapterContent"
+      }
+    },
+    "/content/image": {
+      "get": {
+        "tags": [
+          "章节内容"
+        ],
+        "summary": "获取章节配图",
+        "description": "章节内的插画/配图列表（从解密富文本中解析）。\n\n- `para_index` 为插入位置：把 /content 返回的 `data.data.content` 按换行切分后，图片应插在该行**之前**（从 0 开始）；图片不一定在章末，位置由作者决定\n- 没有配图的章节返回 `has_image=false` 与空数组且 `isSuccess=true`——即“这一章没配图”与“接口失败”用 `isSuccess` 区分，不会用报错表示没配图\n- 图片 URL 带时效签名（`x-expires`）会过期，需要时重新调用本接口",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "query",
+            "required": true,
+            "description": "章节 itemId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "item_id": {
+                          "type": "string",
+                          "description": "回显章节 itemId",
+                          "title": "章节ID"
+                        },
+                        "has_image": {
+                          "type": "boolean",
+                          "description": "本章是否有配图",
+                          "title": "是否有配图"
+                        },
+                        "images": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/ImageInfo"
+                          },
+                          "description": "按章节内出现顺序排列，无配图时为空数组",
+                          "title": "配图列表"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "item_id": "7261897612591104548",
+                        "has_image": true,
+                        "images": [
+                          {
+                            "url": "http://p3-reading-sign.fqnovelpic.com/novel-pic-r/26313a1625319a8cff442b3b6e41ceec~tplv-noop.jpeg?lk3s=8d963091&x-expires=1885211191&x-signature=bw8btbKealJVbTmiTGWbm8c9gNk%3D",
+                            "width": 563,
+                            "height": 563,
+                            "para_index": 38,
+                            "caption": "特"
+                          },
+                          {
+                            "url": "http://p3-reading-sign.fqnovelpic.com/novel-pic-r/4b2e0df5b01edb7a1fa60f54054d9ff5~tplv-noop.jpeg?lk3s=8d963091&x-expires=1885211191&x-signature=AdGewY523Dhm1V36OR0zYWf%2BZEc%3D",
+                            "width": 330,
+                            "height": 220,
+                            "para_index": 67,
+                            "caption": "...."
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数item_id不能为空"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getChapterImages"
+      }
+    },
+    "/content/rich": {
+      "get": {
+        "tags": [
+          "章节内容"
+        ],
+        "summary": "获取章节富文本",
+        "description": "宿主解密后的富文本 XHTML（EPUB 风格），正文段落与配图都在里面，可直接交给 WebView 渲染：\n段落带 `idx` 属性（对应 /content 正文按换行切分的行号），章标题为 `<h1 class=\"chapterTitle1\" idx=\"10000\">`，\n配图为 `<img src=... img-width=... img-height=...>`，图片说明为 `<p class=\"pictureDesc\">`。\n\n默认包在 JSON 的 `data.data.xhtml` 里；加 `raw=1` 则直接返回 XHTML 本体（`Content-Type: application/xhtml+xml; charset=utf-8`，不套 JSON 外壳）。",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "query",
+            "required": true,
+            "description": "章节 itemId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "raw",
+            "in": "query",
+            "required": false,
+            "description": "传 1 时直接返回 XHTML 本体，否则返回 JSON",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功。raw=1 时响应体为 XHTML 文本，否则为 JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "item_id": {
+                          "type": "string",
+                          "description": "回显章节 itemId",
+                          "title": "章节ID"
+                        },
+                        "xhtml": {
+                          "type": "string",
+                          "description": "解密后的富文本 XHTML（EPUB 风格）",
+                          "title": "富文本XHTML"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "item_id": "7261897612591104548",
+                        "xhtml": "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\"><html><head></head><body><h1 class=\"chapterTitle1\" id=\"heading_id_2\" idx=\"10000\">第2章 特级厨师登场</h1><p idx=\"0\">许山眨巴了两下眼睛……</p><p idx=\"1\">……</p></body></html>"
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数item_id不能为空"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              },
+              "application/xhtml+xml": {
+                "schema": {
+                  "type": "string",
+                  "description": "XHTML 文档本体"
+                },
+                "example": "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?><!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\"><html><head></head><body><h1 class=\"chapterTitle1\" id=\"heading_id_2\" idx=\"10000\">第2章 特级厨师登场</h1><p idx=\"0\">许山眨巴了两下眼睛……</p></body></html>"
+              }
+            }
+          }
+        },
+        "operationId": "getChapterRich"
+      }
+    },
+    "/comment": {
+      "get": {
+        "tags": [
+          "评论"
+        ],
+        "summary": "获取书籍评论（书评）",
+        "description": "书评列表在 `data.data.comment`（字段名为单数）。\n\n**翻页规则**：\n- `sort=smart_hot`（综合热度，推荐流）：服务端只认会话游标不认 offset，**第 2 页起必须回传上一页响应里的 `session_id`**\n- `sort=time`（按时间）：直接按 `page` 正常翻页",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": true,
+            "description": "书籍 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "页码，从 1 开始",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "description": "每页数量，1-50",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "排序方式",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "smart_hot",
+                "time"
+              ],
+              "default": "smart_hot"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "description": "上一页返回的会话 ID；仅 sort=smart_hot 且 page>1 时需要",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "comment": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Comment"
+                          },
+                          "description": "书评列表（注意字段名单数）",
+                          "title": "评论列表"
+                        },
+                        "comment_cnt": {
+                          "type": "integer",
+                          "description": "本书书评总数",
+                          "title": "评论总数"
+                        },
+                        "score_cnt": {
+                          "type": "integer",
+                          "title": "打分人数"
+                        },
+                        "context": {
+                          "type": "string",
+                          "description": "汇总文案，如“1.2万人点评”",
+                          "title": "汇总文案"
+                        },
+                        "session_id": {
+                          "type": "string",
+                          "description": "翻页会话：**sort=smart_hot 翻页时回传此值**",
+                          "title": "会话ID"
+                        },
+                        "has_more": {
+                          "type": "boolean",
+                          "title": "是否还有更多",
+                          "description": "是否还有下一页"
+                        },
+                        "next_offset": {
+                          "type": "integer",
+                          "title": "下一页偏移",
+                          "description": "下一页请求使用的偏移量"
+                        },
+                        "next_page_type": {
+                          "type": "string",
+                          "title": "下一页类型标记",
+                          "description": "下一页类型标记（宿主原始字段）"
+                        },
+                        "filter_count": {
+                          "type": "integer",
+                          "description": "被过滤的评论数",
+                          "title": "被过滤评论数"
+                        },
+                        "highlight_tags": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "description": "高亮标签（可能为空）",
+                          "title": "高亮标签"
+                        },
+                        "novel_topics": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "description": "话题卡片（可能为空）",
+                          "title": "话题卡片"
+                        },
+                        "show_style": {
+                          "type": "string",
+                          "title": "展示样式标记",
+                          "description": "服务端下发的展示样式标记（宿主原始字段）"
+                        },
+                        "style": {
+                          "type": "string",
+                          "title": "样式标记",
+                          "description": "服务端下发的样式标记（宿主原始字段）"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "comment": [
+                            {
+                              "comment_id": "7689885774244709145",
+                              "book_id": "7038808223788305445",
+                              "group_id": "7038808223788305445",
+                              "creator_id": "1249459633918424",
+                              "text": "好看，追更中",
+                              "comment_type": 0,
+                              "digg_count": 0,
+                              "reply_count": 0,
+                              "create_timestamp": 1790457323,
+                              "score": "10",
+                              "user_info": {
+                                "user_id": "1249459633918424",
+                                "user_name": "书友"
+                              }
+                            },
+                            {
+                              "comment_id": "7688246960054436670",
+                              "text": "……",
+                              "comment_type": 0,
+                              "digg_count": 0,
+                              "reply_count": 1,
+                              "create_timestamp": 1790065468
+                            }
+                          ],
+                          "comment_cnt": 3557,
+                          "score_cnt": 12050,
+                          "context": "1.2万人点评",
+                          "session_id": "202609282143032E38CEC1226697C0DE10",
+                          "has_more": true,
+                          "next_offset": 20,
+                          "highlight_tags": [],
+                          "novel_topics": []
+                        }
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数sort仅支持smart_hot/time"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getBookComments"
+      }
+    },
+    "/comment/item": {
+      "get": {
+        "tags": [
+          "评论"
+        ],
+        "summary": "获取章节评论（章评）",
+        "description": "整章级评论（区别于段评）。列表在 `data.data.comment`；\n`reply_list` 为每条评论的**内联回复**（楼中楼），无回复时可能缺省。\n已固化支持最热/最新排序：smart_hot=最热、time=最新。",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "query",
+            "required": true,
+            "description": "章节 itemId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": true,
+            "description": "书籍 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "页码，从 1 开始",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "description": "每页数量，1-50",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "排序方式",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "smart_hot",
+                "time"
+              ],
+              "default": "smart_hot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "comment": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/ChapterComment"
+                          },
+                          "description": "章评列表（注意字段名单数；每条带 book_info / item_info / reply_list）",
+                          "title": "评论列表"
+                        },
+                        "comment_cnt": {
+                          "type": "integer",
+                          "description": "本章章评总数",
+                          "title": "评论总数"
+                        },
+                        "has_more": {
+                          "type": "boolean",
+                          "title": "是否还有更多",
+                          "description": "是否还有下一页"
+                        },
+                        "next_offset": {
+                          "type": "integer",
+                          "title": "下一页偏移",
+                          "description": "下一页请求使用的偏移量"
+                        },
+                        "next_page_type": {
+                          "type": "string",
+                          "title": "下一页类型标记",
+                          "description": "下一页类型标记（宿主原始字段）"
+                        },
+                        "filter_count": {
+                          "type": "integer",
+                          "title": "被过滤评论数",
+                          "description": "被过滤/折叠的评论数"
+                        },
+                        "novel_topics": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "title": "话题卡片",
+                          "description": "话题卡片（可能为空）"
+                        },
+                        "tips": {
+                          "type": "string",
+                          "title": "顶部提示文案"
+                        },
+                        "short_tips": {
+                          "type": "string",
+                          "title": "短提示文案",
+                          "description": "短提示文案（与 tips 配合）"
+                        },
+                        "tip_color": {
+                          "type": "string",
+                          "title": "提示颜色",
+                          "description": "提示文案颜色值"
+                        },
+                        "show_comment_cnt": {
+                          "type": "integer",
+                          "title": "展示评论数",
+                          "description": "需要展示的评论数（宿主原始字段）"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "comment": [
+                            {
+                              "comment_id": "7086022855397622561",
+                              "book_id": "7038808223788305445",
+                              "group_id": "7054738209301135902",
+                              "text": "看到这里想笑",
+                              "comment_type": 31,
+                              "digg_count": 2,
+                              "reply_count": 1,
+                              "user_info": {
+                                "user_id": "6919757968674133262",
+                                "user_name": "许、青",
+                                "is_author": true
+                              },
+                              "item_info": {
+                                "item_id": "7054738209301135902",
+                                "title": "第1章 初遇",
+                                "version": "a239e763b6b9572051c0f41d673b1c4a_1_v5",
+                                "book_id": "7038808223788305445",
+                                "book_name": "剑种",
+                                "real_chapter_order": "1"
+                              },
+                              "reply_list": [
+                                {
+                                  "reply_id": "7086029616187671334",
+                                  "reply_to_comment_id": "7086022855397622561",
+                                  "reply_to_reply_id": "0",
+                                  "text": "……你说的是顺丰快递？",
+                                  "digg_count": 0,
+                                  "level": 2
+                                }
+                              ]
+                            }
+                          ],
+                          "comment_cnt": 26,
+                          "has_more": true,
+                          "next_offset": 20,
+                          "tips": "",
+                          "novel_topics": []
+                        }
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数item_id不能为空"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getItemComments"
+      }
+    },
+    "/comment/para/list": {
+      "get": {
+        "tags": [
+          "评论"
+        ],
+        "summary": "获取段评概览",
+        "description": "一次返回整章各段落的段评概览。`data.data.idea_data` 是 **para_index → 段评概览** 的映射（键为字符串数字），\n`idea_count>0` 即该段有段评；配合 /comment/para 取具体评论。",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": true,
+            "description": "书籍 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "query",
+            "required": true,
+            "description": "章节 itemId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "item_version",
+            "in": "query",
+            "required": true,
+            "description": "章节版本（取自 /content 的 data.data.novel_data.version，缺失时服务端拒绝）",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "idea_data": {
+                          "type": "object",
+                          "description": "**段索引（字符串数字）→ 该段段评概览** 的映射，用于知晓哪些段落有段评",
+                          "additionalProperties": {
+                            "$ref": "#/components/schemas/ParaIdea"
+                          },
+                          "title": "段评概览映射"
+                        },
+                        "newest_item_version": {
+                          "type": "string",
+                          "description": "服务端最新章节版本；若与传入 item_version 不同，建议刷新正文后重取",
+                          "title": "服务端最新章节版本"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "idea_data": {
+                            "0": {
+                              "idea_count": 577,
+                              "author_commented": true,
+                              "hot_tag": false,
+                              "self_commented": false,
+                              "self_comment_count": 0,
+                              "comment_type_count": {
+                                "0": 577,
+                                "31": 3,
+                                "-90": 6
+                              },
+                              "show_out_comments": [
+                                {
+                                  "comment_id": "7075373252583310115",
+                                  "text": "开局一个小破庙",
+                                  "digg_count": 11,
+                                  "comment_pos": {
+                                    "start_para_index": 0,
+                                    "start_word_pos": 0,
+                                    "end_para_index": 0,
+                                    "end_word_pos": 11
+                                  }
+                                }
+                              ]
+                            },
+                            "46": {
+                              "idea_count": 3,
+                              "author_commented": false,
+                              "hot_tag": false,
+                              "self_commented": false,
+                              "self_comment_count": 0,
+                              "comment_type_count": {
+                                "0": 3
+                              },
+                              "show_out_comments": []
+                            }
+                          },
+                          "newest_item_version": "a239e763b6b9572051c0f41d673b1c4a_1_v5"
+                        }
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数item_version不能为空，取自/content返回的data.data.novel_data.version"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getParaCommentIndex"
+      }
+    },
+    "/comment/para": {
+      "get": {
+        "tags": [
+          "评论"
+        ],
+        "summary": "获取具体段评",
+        "description": "某一段落的划线评论。`para_index` 是把 /content 的 `data.data.content` 按 `\\n` 切分后的**行号（从 0 开始）**。\n排序实测服务端仅支持 hot（最热）与 time_desc（时间倒序），不传等同 hot。",
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": true,
+            "description": "书籍 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "query",
+            "required": true,
+            "description": "章节 itemId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "item_version",
+            "in": "query",
+            "required": true,
+            "description": "章节版本（取自 /content 的 data.data.novel_data.version，缺失时服务端拒绝）",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "para_index",
+            "in": "query",
+            "required": true,
+            "description": "段落序号（从 0 开始）",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "页码，从 1 开始",
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "description": "每页数量，1-50",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "排序方式",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "hot",
+                "time_desc"
+              ],
+              "default": "hot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "comments": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/ParaComment"
+                          },
+                          "description": "该段的段评列表（注意字段名复数）",
+                          "title": "段评列表"
+                        },
+                        "count": {
+                          "type": "integer",
+                          "description": "该段段评总数",
+                          "title": "段评总数"
+                        },
+                        "has_more": {
+                          "type": "boolean",
+                          "title": "是否还有更多",
+                          "description": "是否还有下一页"
+                        },
+                        "next_offset": {
+                          "type": "integer",
+                          "title": "下一页偏移",
+                          "description": "下一页请求使用的偏移量"
+                        },
+                        "next_page_type": {
+                          "type": "string",
+                          "title": "下一页类型标记",
+                          "description": "下一页类型标记（宿主原始字段）"
+                        },
+                        "filter_count": {
+                          "type": "integer",
+                          "title": "被过滤评论数",
+                          "description": "被过滤/折叠的评论数"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "comments": [
+                            {
+                              "comment_id": "7479754458380600089",
+                              "book_id": "7038808223788305445",
+                              "text": "开局就是雨天，氛围感拉满",
+                              "comment_type": 0,
+                              "digg_count": 11,
+                              "reply_count": 0,
+                              "create_timestamp": 1741522099,
+                              "comment_pos": {
+                                "start_para_index": 0,
+                                "start_word_pos": 0,
+                                "end_para_index": 0,
+                                "end_word_pos": 10
+                              },
+                              "user_info": {
+                                "user_id": "1249459633918424",
+                                "user_name": "书友"
+                              }
+                            }
+                          ],
+                          "count": 577,
+                          "has_more": true,
+                          "next_offset": 20
+                        }
+                      }
+                    }
+                  },
+                  "参数缺失或非法": {
+                    "summary": "参数缺失或非法",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "参数item_version不能为空，取自/content返回的data.data.novel_data.version"
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "getParaComments"
+      }
+    },
+    "/reading/bookapi/bookmall/cell/change/v1/": {
+      "get": {
+        "tags": [
+          "发现"
+        ],
+        "summary": "发现书籍-信息流变动（透传）",
+        "description": "书城信息流“换一批”类接口，**参数与番茄官方接口保持一致**，原样透传到宿主请求模型\n（下划线参数名自动映射驼峰字段，无法识别的参数会被忽略并仅记录日志）。\n常用参数：`cell_id`（榜单/坑位 id，数字）、`book_id`（当前书）。",
+        "parameters": [
+          {
+            "name": "cell_id",
+            "in": "query",
+            "required": false,
+            "description": "榜单/坑位 id（数字，取自书城接口返回）",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": false,
+            "description": "当前书籍 ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "宿主 RPC 透传结构（code=0 / message=SUCCESS 表示宿主调用成功）",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "宿主 RPC 业务码，0 为成功",
+                          "title": "业务码"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "SUCCESS",
+                          "title": "消息",
+                          "description": "宿主 RPC 消息，SUCCESS 表示成功"
+                        },
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "cell_view": {
+                              "type": "object",
+                              "properties": {
+                                "cell_id": {
+                                  "type": "integer",
+                                  "title": "坑位ID（数字）",
+                                  "description": "注意：此处是 JSON 数字，JS 侧注意大数精度，配套 cell_id_str"
+                                },
+                                "cell_id_str": {
+                                  "type": "string",
+                                  "description": "cell_id 的字符串形式，**优先用这个**",
+                                  "title": "卡片ID字符串"
+                                },
+                                "cell_name": {
+                                  "type": "string",
+                                  "title": "坑位名称",
+                                  "description": "坑位名称（多为空）"
+                                },
+                                "cell_operation_type": {
+                                  "type": "string",
+                                  "title": "坑位操作类型",
+                                  "description": "坑位操作类型（宿主原始字段）"
+                                },
+                                "use_recommend": {
+                                  "type": "boolean",
+                                  "title": "推荐样式标记",
+                                  "description": "是否走推荐样式展示"
+                                }
+                              },
+                              "additionalProperties": true,
+                              "title": "坑位视图"
+                            },
+                            "has_more": {
+                              "type": "boolean",
+                              "title": "是否还有更多",
+                              "description": "是否还有下一页"
+                            },
+                            "next_offset": {
+                              "type": "integer",
+                              "title": "下一页偏移",
+                              "description": "下一页请求使用的偏移量"
+                            },
+                            "rank_version": {
+                              "type": "string",
+                              "title": "榜单版本号",
+                              "description": "榜单数据版本号"
+                            },
+                            "session_id": {
+                              "type": "string",
+                              "title": "会话ID",
+                              "description": "会话 ID（宿主原始字段）"
+                            }
+                          },
+                          "additionalProperties": true,
+                          "title": "业务数据"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "cell_view": {
+                            "cell_id": 7125523038273984543,
+                            "cell_id_str": "7125523038273984543",
+                            "cell_name": "",
+                            "cell_operation_type": "0",
+                            "use_recommend": true
+                          },
+                          "has_more": false,
+                          "next_offset": 0,
+                          "rank_version": "",
+                          "session_id": "20260928214545801B1CB0B2994162F17D"
+                        }
+                      }
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "bookMallCellChange"
+      }
+    },
+    "/reading/bookapi/new_category/landing/v/": {
+      "get": {
+        "tags": [
+          "发现"
+        ],
+        "summary": "发现书籍-分类浏览落地页（透传）",
+        "description": "分类浏览页，**参数与番茄官方接口保持一致**，原样透传到宿主请求模型。\n常用参数：`category_id`（分类 id，如 258=传统玄幻）、`gender`（1=男频，2=女频）、\n`creation_status`（0=连载中，1=完结）、`book_type`、`page_count`、`style_id`、`offset`（翻页偏移）。\n\n**翻页**：按响应里的 `has_more` 与回显的 `offset` 继续：下一次请求传 `offset=上一页响应的 offset`。\n书籍列表在 `data.data.book_info`（字段名是 book_info，单页数量由服务端决定，实测默认 400 条）。",
+        "parameters": [
+          {
+            "name": "category_id",
+            "in": "query",
+            "required": false,
+            "description": "分类 id（数字，如 258=传统玄幻）",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "gender",
+            "in": "query",
+            "required": false,
+            "description": "频道：1=男频，2=女频",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                1,
+                2
+              ]
+            }
+          },
+          {
+            "name": "creation_status",
+            "in": "query",
+            "required": false,
+            "description": "创作状态：0=连载中，1=完结",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "book_type",
+            "in": "query",
+            "required": false,
+            "description": "书籍类型（透传）",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page_count",
+            "in": "query",
+            "required": false,
+            "description": "分页参数（透传）",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "style_id",
+            "in": "query",
+            "required": false,
+            "description": "样式 id（透传）",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "翻页偏移：传上一页响应回显的 offset 值",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功响应（成败都是 HTTP 200，以 isSuccess 判断）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "统一响应壳",
+                  "description": "统一响应壳。失败时 data 字段整体缺省",
+                  "properties": {
+                    "isSuccess": {
+                      "type": "boolean",
+                      "description": "业务是否成功。**成败都是 HTTP 200**，必须以本字段判断",
+                      "title": "是否成功"
+                    },
+                    "errorMsg": {
+                      "type": "string",
+                      "description": "失败原因；成功时为空字符串",
+                      "title": "错误信息"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "宿主 RPC 透传结构（code=0 / message=SUCCESS 表示宿主调用成功）",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "宿主 RPC 业务码，0 为成功",
+                          "title": "业务码"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "SUCCESS",
+                          "title": "消息",
+                          "description": "宿主 RPC 消息，SUCCESS 表示成功"
+                        },
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "book_info": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/components/schemas/Book"
+                              },
+                              "description": "分类下的书籍列表",
+                              "title": "书籍列表"
+                            },
+                            "category": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "description": "分类 id（数字字符串）",
+                                  "title": "分类ID"
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "description": "分类名",
+                                  "title": "分类名称"
+                                },
+                                "book_num": {
+                                  "type": "string",
+                                  "description": "该分类书籍总数（数字字符串）",
+                                  "title": "分类书籍总数"
+                                },
+                                "description": {
+                                  "type": "string",
+                                  "title": "个人签名",
+                                  "description": "用户个人签名"
+                                },
+                                "dim": {
+                                  "type": "string",
+                                  "title": "维度标识",
+                                  "description": "分类维度标识（宿主原始字段）"
+                                },
+                                "tag": {
+                                  "type": "integer",
+                                  "description": "标记值（实测为数字，宿主原始字段）",
+                                  "title": "分类标签"
+                                },
+                                "top_mark": {
+                                  "type": "string",
+                                  "title": "顶部角标",
+                                  "description": "顶部角标（宿主原始字段）"
+                                },
+                                "book_type": {
+                                  "type": "string",
+                                  "title": "书籍类型",
+                                  "description": "书籍类型标记（宿主原始字段）"
+                                }
+                              },
+                              "description": "当前分类信息",
+                              "additionalProperties": true,
+                              "title": "分类信息"
+                            },
+                            "has_more": {
+                              "type": "boolean",
+                              "description": "是否还有下一页",
+                              "title": "是否还有更多"
+                            },
+                            "offset": {
+                              "type": "integer",
+                              "description": "下一页偏移：翻页时作为下一次请求的 offset 参数回传",
+                              "title": "下一页偏移"
+                            },
+                            "rule": {
+                              "type": "object",
+                              "properties": {
+                                "book_status": {
+                                  "description": "连载状态筛选项（实测为数组，结构未固化，宿主透传）",
+                                  "title": "连载状态筛选项"
+                                },
+                                "sort_by": {
+                                  "description": "排序方式筛选项（实测为数组，结构未固化，宿主透传）",
+                                  "title": "排序筛选项"
+                                },
+                                "sort_choose": {
+                                  "description": "排序选择项（实测为字符串，宿主透传）",
+                                  "title": "排序选择"
+                                },
+                                "sub_category": {
+                                  "description": "子分类筛选项（实测为数组，结构未固化，宿主透传）",
+                                  "title": "子分类筛选项"
+                                },
+                                "word_type": {
+                                  "description": "字数筛选项（实测为数组，结构未固化，宿主透传）",
+                                  "title": "字数筛选项"
+                                }
+                              },
+                              "description": "筛选规则（连载状态/排序/字数等筛选项）",
+                              "additionalProperties": true,
+                              "title": "筛选规则"
+                            },
+                            "video": {
+                              "type": "boolean",
+                              "title": "视频频道标记",
+                              "description": "是否视频频道内容"
+                            }
+                          },
+                          "additionalProperties": true,
+                          "title": "业务数据"
+                        }
+                      },
+                      "additionalProperties": true,
+                      "title": "业务数据"
+                    }
+                  },
+                  "required": [
+                    "isSuccess",
+                    "errorMsg"
+                  ]
+                },
+                "examples": {
+                  "成功": {
+                    "summary": "成功",
+                    "value": {
+                      "isSuccess": true,
+                      "errorMsg": "",
+                      "data": {
+                        "code": "0",
+                        "message": "SUCCESS",
+                        "data": {
+                          "book_info": [
+                            {
+                              "book_id": "7261897612591104482",
+                              "book_name": "修仙界第一混乱",
+                              "author": "某人",
+                              "category": "仙侠",
+                              "gender": "1",
+                              "creation_status": "0",
+                              "word_number": 1200000,
+                              "serial_count": 480,
+                              "first_chapter_item_id": "7261897612591104548"
+                            }
+                          ],
+                          "category": {
+                            "id": "258",
+                            "name": "传统玄幻",
+                            "book_num": "60000"
+                          },
+                          "has_more": true,
+                          "offset": 400,
+                          "video": false
+                        }
+                      }
+                    }
+                  },
+                  "宿主调用失败": {
+                    "summary": "宿主调用失败",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "java.lang.RuntimeException: ErrorCodeException{code=-702, error='fail to fetch key'}"
+                    }
+                  },
+                  "宿主版本不匹配": {
+                    "summary": "宿主版本不匹配",
+                    "value": {
+                      "isSuccess": false,
+                      "errorMsg": "宿主版本不匹配，请使用已适配的番茄小说版本或更新番茄Web"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "operationId": "newCategoryLanding"
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Book": {
+        "type": "object",
+        "properties": {
+          "book_id": {
+            "type": "string",
+            "description": "书籍 ID（字符串）",
+            "title": "书籍ID"
+          },
+          "book_name": {
+            "type": "string",
+            "title": "书名"
+          },
+          "author": {
+            "type": "string",
+            "description": "作者名",
+            "title": "作者"
+          },
+          "author_id": {
+            "type": "string",
+            "description": "作者用户 ID",
+            "title": "作者ID"
+          },
+          "abstract": {
+            "type": "string",
+            "description": "简介，内含 \n 换行",
+            "title": "简介"
+          },
+          "category": {
+            "type": "string",
+            "description": "分类名，如“传统玄幻”",
+            "title": "分类信息"
+          },
+          "category_schema": {
+            "type": "string",
+            "description": "分类跳转 schema（JSON 数组字符串）",
+            "title": "分类跳转Schema"
+          },
+          "complete_category": {
+            "type": "string",
+            "description": "完整分类（宿主原始字段）",
+            "title": "完整分类"
+          },
+          "tags": {
+            "type": "string",
+            "description": "标签（逗号分隔字符串）",
+            "title": "标签"
+          },
+          "copyright_info": {
+            "type": "string",
+            "description": "版权说明文案，如“版权信息：本书的数字版权由 番茄小说 提供并授权发行…”",
+            "title": "版权信息"
+          },
+          "thumb_url": {
+            "type": "string",
+            "description": "封面图 URL（带时效签名）",
+            "title": "封面图URL"
+          },
+          "thumb_uri": {
+            "type": "string",
+            "description": "封面图 URI（无签名，需自行拼 CDN 域名）",
+            "title": "封面图URI"
+          },
+          "horiz_thumb_url": {
+            "type": "string",
+            "description": "横版封面 URL",
+            "title": "横版封面URL"
+          },
+          "audio_thumb_uri": {
+            "type": "string",
+            "description": "有声书封面",
+            "title": "有声书封面URI"
+          },
+          "gender": {
+            "type": "string",
+            "description": "频道：\"1\"=男频，\"2\"=女频（字符串）",
+            "title": "频道"
+          },
+          "genre": {
+            "type": "string",
+            "description": "题材（宿主原始字段）",
+            "title": "题材"
+          },
+          "genre_type": {
+            "type": "string",
+            "description": "题材类型（宿主原始字段）",
+            "title": "题材类型"
+          },
+          "creation_status": {
+            "type": "string",
+            "description": "创作状态：\"0\"=连载中，\"1\"=完结（字符串）",
+            "title": "创作状态"
+          },
+          "word_number": {
+            "type": "string",
+            "description": "总字数（数字字符串）",
+            "title": "总字数"
+          },
+          "serial_count": {
+            "type": "string",
+            "description": "已发布章节数（数字字符串）",
+            "title": "章节总数"
+          },
+          "read_count": {
+            "type": "string",
+            "description": "阅读人数（数字字符串）",
+            "title": "阅读人数"
+          },
+          "listen_count": {
+            "type": "string",
+            "description": "收听人数（数字字符串）",
+            "title": "收听人数"
+          },
+          "score": {
+            "type": "string",
+            "description": "评分字符串，如 \"9.7\"（满分 10）",
+            "title": "评分"
+          },
+          "sub_abstract": {
+            "type": "string",
+            "description": "副简介（可能为空）",
+            "title": "副简介"
+          },
+          "sub_info": {
+            "type": "string",
+            "description": "在读人数文案，如“14万人在读”",
+            "title": "附加信息"
+          },
+          "original_book_name": {
+            "type": "string",
+            "description": "原始书名（改名/别名前的名称）",
+            "title": "原始书名"
+          },
+          "role": {
+            "type": "string",
+            "description": "主要角色名，逗号分隔，如“池小橙,苏桃”",
+            "title": "角色标记"
+          },
+          "op_tag": {
+            "type": "string",
+            "description": "运营标签 ID 列表（逗号分隔字符串）",
+            "title": "运营标签"
+          },
+          "source": {
+            "type": "string",
+            "description": "来源方名称，如“番茄小说”",
+            "title": "来源"
+          },
+          "platform": {
+            "type": "string",
+            "description": "平台标记（宿主原始字段）",
+            "title": "平台"
+          },
+          "type": {
+            "type": "string",
+            "description": "类型标记（宿主原始字段）",
+            "title": "类型标记"
+          },
+          "book_type": {
+            "type": "string",
+            "description": "书籍类型（宿主原始字段）",
+            "title": "书籍类型"
+          },
+          "authorize_type": {
+            "type": "string",
+            "description": "授权类型（宿主原始字段）",
+            "title": "授权类型"
+          },
+          "exclusive": {
+            "type": "string",
+            "description": "是否独家（\"0\"/\"1\" 字符串）",
+            "title": "独家标记"
+          },
+          "is_ebook": {
+            "type": "string",
+            "description": "是否电子书（\"0\"/\"1\" 字符串）",
+            "title": "是否电子书"
+          },
+          "tomato_book_status": {
+            "type": "string",
+            "description": "番茄书籍状态（宿主原始字段）",
+            "title": "番茄书籍状态"
+          },
+          "total_price": {
+            "type": "string",
+            "description": "总价（数字字符串）",
+            "title": "总价"
+          },
+          "tts_status": {
+            "type": "string",
+            "description": "听书（TTS）支持状态（\"0\"/\"1\" 字符串）",
+            "title": "听书状态"
+          },
+          "length_type": {
+            "type": "string",
+            "description": "篇幅类型（宿主原始字段）",
+            "title": "篇幅类型"
+          },
+          "keep_publish_days": {
+            "type": "string",
+            "description": "宿主原始字段，语义以 App 内展示为准",
+            "title": "保持发布天数"
+          },
+          "media_id": {
+            "type": "string",
+            "description": "媒体资源 ID",
+            "title": "媒体ID"
+          },
+          "create_time": {
+            "type": "string",
+            "description": "创建时间（ISO8601 字符串，如 2024-08-24T14:43:03+08:00）",
+            "title": "创建时间"
+          },
+          "last_publish_time": {
+            "type": "string",
+            "description": "最近发布时间（Unix 秒字符串）",
+            "title": "最近发布时间"
+          },
+          "first_chapter_item_id": {
+            "type": "string",
+            "description": "第一章 itemId，可直接用于 /content",
+            "title": "首章ID"
+          },
+          "first_chapter_title": {
+            "type": "string",
+            "description": "第一章标题",
+            "title": "首章标题"
+          },
+          "first_chapter_group_id": {
+            "type": "string",
+            "description": "第一章组 ID",
+            "title": "首章组ID"
+          },
+          "second_chapter_item_id": {
+            "type": "string",
+            "description": "第二章 itemId",
+            "title": "第二章ID"
+          },
+          "last_chapter_item_id": {
+            "type": "string",
+            "description": "最新章节 itemId，可用于 /content",
+            "title": "最新章ID"
+          },
+          "last_chapter_title": {
+            "type": "string",
+            "description": "最新章节标题",
+            "title": "最新章标题"
+          },
+          "last_chapter_group_id": {
+            "type": "string",
+            "description": "最新章节组 ID",
+            "title": "最新章组ID"
+          },
+          "last_chapter_update_time": {
+            "type": "string",
+            "description": "最近章节更新时间（Unix 秒字符串）",
+            "title": "最近章节更新时间"
+          },
+          "latest_read_item_id": {
+            "type": "string",
+            "description": "当前用户最近阅读章节 ID",
+            "title": "最近阅读章ID"
+          },
+          "latest_listen_item_id": {
+            "type": "string",
+            "description": "最近收听章节 ID（\"0\"=无）",
+            "title": "最近收听章ID"
+          },
+          "related_audio_bookids": {
+            "type": "string",
+            "description": "关联有声书 ID（JSON 数组字符串，如 \"[7492722823090146366]\"）",
+            "title": "关联有声书ID"
+          },
+          "novel_text_type": {
+            "type": "string",
+            "description": "正文文本类型（\"1\"=纯文本）",
+            "title": "正文文本类型"
+          },
+          "in_bookshelf": {
+            "type": "string",
+            "description": "是否已加入当前用户书架（\"0\"/\"1\" 字符串）",
+            "title": "是否在书架"
+          },
+          "read_progress": {
+            "type": "string",
+            "description": "当前用户阅读进度（数字字符串）",
+            "title": "阅读进度"
+          },
+          "default_tab": {
+            "type": "string",
+            "description": "详情页默认页签（宿主原始字段）",
+            "title": "详情页默认页签"
+          },
+          "for_young": {
+            "type": "boolean",
+            "description": "是否青年模式适用",
+            "title": "青年模式标记"
+          },
+          "tag_strengthen": {
+            "type": "boolean",
+            "title": "标签强化标记"
+          },
+          "ad_free_show": {
+            "type": "string",
+            "description": "免广告展示标记（宿主原始字段）",
+            "title": "免广告展示标记"
+          },
+          "avatar_url": {
+            "type": "string",
+            "description": "作者头像 URL（可能为空）",
+            "title": "作者头像"
+          },
+          "status": {
+            "type": "string",
+            "description": "状态标记（宿主原始字段）",
+            "title": "评论状态"
+          },
+          "sale_status": {
+            "type": "string",
+            "description": "售卖状态（宿主原始字段）",
+            "title": "售卖状态"
+          },
+          "free_status": {
+            "type": "string",
+            "description": "免费状态（宿主原始字段）",
+            "title": "免费状态"
+          },
+          "remove_type": {
+            "type": "string",
+            "description": "移除标记（宿主原始字段）",
+            "title": "移除标记"
+          },
+          "update_status": {
+            "type": "string",
+            "description": "更新状态（宿主原始字段）",
+            "title": "更新状态"
+          },
+          "data_rate": {
+            "type": "string",
+            "description": "数据倍率（可能为空，宿主原始字段）",
+            "title": "数据倍率"
+          },
+          "custom_total_price": {
+            "type": "string",
+            "description": "自定义总价（数字字符串）",
+            "title": "自定义总价"
+          },
+          "discount_custom_total_price": {
+            "type": "string",
+            "description": "折扣后自定义总价（数字字符串）",
+            "title": "折扣后总价"
+          },
+          "content": {
+            "type": "string",
+            "description": "详情页富文本内容（HTML 字符串，含 <p idx=…> 段落与配图）",
+            "title": "正文内容"
+          }
+        },
+        "description": "书籍信息（宿主透传，此处列常用字段，其余字段原样返回）",
+        "additionalProperties": true,
+        "title": "书籍信息"
+      },
+      "CatalogItem": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "description": "章节 itemId",
+            "title": "章节ID"
+          },
+          "title": {
+            "type": "string",
+            "title": "章节标题"
+          },
+          "version": {
+            "type": "string",
+            "description": "章节版本，**段评接口的 item_version 参数即取这里**",
+            "title": "章节版本"
+          },
+          "volume_name": {
+            "type": "string",
+            "title": "分卷名"
+          },
+          "chapter_type": {
+            "type": "string",
+            "description": "章节类型（0=正文）",
+            "title": "章节类型"
+          },
+          "content_md5": {
+            "type": "string",
+            "title": "内容MD5",
+            "description": "章节内容 MD5（也是 version 的前缀）"
+          },
+          "first_pass_time": {
+            "type": "integer",
+            "description": "首发时间（Unix 秒）",
+            "title": "首发时间"
+          }
+        },
+        "description": "目录章节条目",
+        "required": [
+          "item_id",
+          "title",
+          "version"
+        ],
+        "additionalProperties": true,
+        "title": "目录章节条目"
+      },
+      "UserInfo": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "用户ID",
+            "description": "用户 ID"
+          },
+          "user_name": {
+            "type": "string",
+            "description": "昵称",
+            "title": "用户昵称"
+          },
+          "user_avatar": {
+            "type": "string",
+            "description": "头像 URL",
+            "title": "头像URL"
+          },
+          "description": {
+            "type": "string",
+            "title": "个人签名"
+          },
+          "encode_user_id": {
+            "type": "string",
+            "description": "加密用户 ID",
+            "title": "加密用户ID"
+          },
+          "is_author": {
+            "type": "boolean",
+            "title": "是否本书作者"
+          },
+          "is_vip": {
+            "type": "boolean",
+            "title": "是否VIP",
+            "description": "是否 VIP 用户"
+          },
+          "gender": {
+            "type": "string",
+            "title": "频道",
+            "description": "性别标记（用户信息内；书籍对象里的 gender 是频道）"
+          },
+          "fans_num": {
+            "type": "integer",
+            "title": "粉丝数"
+          },
+          "follow_user_num": {
+            "type": "integer",
+            "title": "关注数"
+          },
+          "recv_digg_num": {
+            "type": "integer",
+            "title": "获赞数"
+          },
+          "read_book_num": {
+            "type": "integer",
+            "title": "读书数量"
+          },
+          "fans_schema": {
+            "type": "string",
+            "description": "主页跳转 schema",
+            "title": "粉丝主页Schema"
+          },
+          "follow_schema": {
+            "type": "string",
+            "description": "关注跳转 schema",
+            "title": "关注操作Schema"
+          }
+        },
+        "description": "评论用户信息（宿主透传）",
+        "additionalProperties": true,
+        "title": "评论用户信息"
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "string",
+            "description": "评论 ID",
+            "title": "评论ID"
+          },
+          "book_id": {
+            "type": "string",
+            "title": "书籍ID",
+            "description": "书籍 ID（纯数字字符串，取自 /search）"
+          },
+          "group_id": {
+            "type": "string",
+            "description": "所属组（书评=book_id，章评=章节 item_id）",
+            "title": "所属组ID"
+          },
+          "creator_id": {
+            "type": "string",
+            "description": "评论者用户 ID",
+            "title": "评论者用户ID"
+          },
+          "user_info": {
+            "$ref": "#/components/schemas/UserInfo"
+          },
+          "text": {
+            "type": "string",
+            "description": "评论正文",
+            "title": "评论内容"
+          },
+          "comment_type": {
+            "type": "integer",
+            "description": "评论类型（0=普通评论，其余为段评/样式标记，见 comment_type_count）",
+            "title": "评论类型标记"
+          },
+          "digg_count": {
+            "type": "integer",
+            "title": "点赞数"
+          },
+          "reply_count": {
+            "type": "integer",
+            "title": "回复数"
+          },
+          "create_timestamp": {
+            "type": "integer",
+            "description": "发布时间（Unix 秒）",
+            "title": "发布时间戳"
+          },
+          "has_author_digg": {
+            "type": "boolean",
+            "description": "作者是否已点赞",
+            "title": "作者已点赞"
+          },
+          "level": {
+            "type": "integer",
+            "title": "用户等级"
+          },
+          "status": {
+            "type": "integer",
+            "title": "评论状态",
+            "description": "评论状态标记（宿主原始字段）"
+          },
+          "stick_position": {
+            "type": "integer",
+            "description": "置顶位置，0=未置顶",
+            "title": "置顶位置"
+          },
+          "can_share": {
+            "type": "boolean",
+            "title": "是否可分享"
+          },
+          "can_user_del": {
+            "type": "boolean",
+            "title": "是否可自行删除",
+            "description": "是否可由本人删除"
+          },
+          "dislike_reason_list": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "点踩可选原因"
+          },
+          "num_lines": {
+            "type": "integer",
+            "title": "评论行数",
+            "description": "评论占用行数（宿主原始字段）"
+          },
+          "read_duration": {
+            "type": "integer",
+            "description": "评论者阅读时长（分钟）",
+            "title": "阅读时长"
+          },
+          "score": {
+            "type": "string",
+            "description": "书评评分字符串（如 \"10\"），仅书评有",
+            "title": "评分"
+          },
+          "boost": {
+            "type": "integer",
+            "title": "排序加权值",
+            "description": "服务端排序加权值（宿主原始字段）"
+          }
+        },
+        "description": "评论对象基础字段（宿主透传，此处列常用字段）",
+        "additionalProperties": true,
+        "title": "评论基础字段"
+      },
+      "ChapterComment": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "string",
+            "description": "评论 ID",
+            "title": "评论ID"
+          },
+          "book_id": {
+            "type": "string",
+            "title": "书籍ID",
+            "description": "书籍 ID（纯数字字符串，取自 /search）"
+          },
+          "group_id": {
+            "type": "string",
+            "description": "所属组（书评=book_id，章评=章节 item_id）",
+            "title": "所属组ID"
+          },
+          "creator_id": {
+            "type": "string",
+            "description": "评论者用户 ID",
+            "title": "评论者用户ID"
+          },
+          "user_info": {
+            "$ref": "#/components/schemas/UserInfo"
+          },
+          "text": {
+            "type": "string",
+            "description": "评论正文",
+            "title": "评论内容"
+          },
+          "comment_type": {
+            "type": "integer",
+            "description": "评论类型（0=普通评论，其余为段评/样式标记，见 comment_type_count）",
+            "title": "评论类型标记"
+          },
+          "digg_count": {
+            "type": "integer",
+            "title": "点赞数"
+          },
+          "reply_count": {
+            "type": "integer",
+            "title": "回复数"
+          },
+          "create_timestamp": {
+            "type": "integer",
+            "description": "发布时间（Unix 秒）",
+            "title": "发布时间戳"
+          },
+          "has_author_digg": {
+            "type": "boolean",
+            "description": "作者是否已点赞",
+            "title": "作者已点赞"
+          },
+          "level": {
+            "type": "integer",
+            "title": "用户等级"
+          },
+          "status": {
+            "type": "integer",
+            "title": "评论状态",
+            "description": "评论状态标记（宿主原始字段）"
+          },
+          "stick_position": {
+            "type": "integer",
+            "description": "置顶位置，0=未置顶",
+            "title": "置顶位置"
+          },
+          "can_share": {
+            "type": "boolean",
+            "title": "是否可分享"
+          },
+          "can_user_del": {
+            "type": "boolean",
+            "title": "是否可自行删除",
+            "description": "是否可由本人删除"
+          },
+          "dislike_reason_list": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "点踩可选原因"
+          },
+          "num_lines": {
+            "type": "integer",
+            "title": "评论行数",
+            "description": "评论占用行数（宿主原始字段）"
+          },
+          "read_duration": {
+            "type": "integer",
+            "description": "评论者阅读时长（分钟）",
+            "title": "阅读时长"
+          },
+          "score": {
+            "type": "string",
+            "description": "书评评分字符串（如 \"10\"），仅书评有",
+            "title": "评分"
+          },
+          "boost": {
+            "type": "integer",
+            "title": "排序加权值",
+            "description": "服务端排序加权值（宿主原始字段）"
+          },
+          "book_info": {
+            "$ref": "#/components/schemas/Book"
+          },
+          "item_info": {
+            "type": "object",
+            "properties": {
+              "item_id": {
+                "type": "string",
+                "title": "章节ID",
+                "description": "章节 itemId（字符串）"
+              },
+              "title": {
+                "type": "string",
+                "title": "章节标题",
+                "description": "被评论的章节标题"
+              },
+              "version": {
+                "type": "string",
+                "title": "章节版本",
+                "description": "章节版本，段评接口的 item_version 参数即取这里"
+              },
+              "book_id": {
+                "type": "string",
+                "title": "书籍ID",
+                "description": "书籍 ID（纯数字字符串，取自 /search）"
+              },
+              "book_name": {
+                "type": "string",
+                "title": "书名"
+              },
+              "thumb_url": {
+                "type": "string",
+                "title": "封面图URL",
+                "description": "封面图 URL"
+              },
+              "word_number": {
+                "type": "string",
+                "title": "总字数"
+              },
+              "real_chapter_order": {
+                "type": "string",
+                "description": "章节序号（数字字符串）",
+                "title": "章节实际序号"
+              }
+            },
+            "description": "被评论章节的信息",
+            "additionalProperties": true,
+            "title": "被评章节信息"
+          },
+          "reply_list": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Reply"
+            },
+            "description": "内联回复；无回复时可能缺省或为 null",
+            "title": "内联回复列表"
+          }
+        },
+        "description": "章评对象（在书评字段基础上多 book_info / item_info / reply_list）",
+        "additionalProperties": true,
+        "title": "章评对象"
+      },
+      "ParaComment": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "string",
+            "description": "评论 ID",
+            "title": "评论ID"
+          },
+          "book_id": {
+            "type": "string",
+            "title": "书籍ID",
+            "description": "书籍 ID（纯数字字符串，取自 /search）"
+          },
+          "group_id": {
+            "type": "string",
+            "description": "所属组（书评=book_id，章评=章节 item_id）",
+            "title": "所属组ID"
+          },
+          "creator_id": {
+            "type": "string",
+            "description": "评论者用户 ID",
+            "title": "评论者用户ID"
+          },
+          "user_info": {
+            "$ref": "#/components/schemas/UserInfo"
+          },
+          "text": {
+            "type": "string",
+            "description": "评论正文",
+            "title": "评论内容"
+          },
+          "comment_type": {
+            "type": "integer",
+            "description": "评论类型（0=普通评论，其余为段评/样式标记，见 comment_type_count）",
+            "title": "评论类型标记"
+          },
+          "digg_count": {
+            "type": "integer",
+            "title": "点赞数"
+          },
+          "reply_count": {
+            "type": "integer",
+            "title": "回复数"
+          },
+          "create_timestamp": {
+            "type": "integer",
+            "description": "发布时间（Unix 秒）",
+            "title": "发布时间戳"
+          },
+          "has_author_digg": {
+            "type": "boolean",
+            "description": "作者是否已点赞",
+            "title": "作者已点赞"
+          },
+          "level": {
+            "type": "integer",
+            "title": "用户等级"
+          },
+          "status": {
+            "type": "integer",
+            "title": "评论状态",
+            "description": "评论状态标记（宿主原始字段）"
+          },
+          "stick_position": {
+            "type": "integer",
+            "description": "置顶位置，0=未置顶",
+            "title": "置顶位置"
+          },
+          "can_share": {
+            "type": "boolean",
+            "title": "是否可分享"
+          },
+          "can_user_del": {
+            "type": "boolean",
+            "title": "是否可自行删除",
+            "description": "是否可由本人删除"
+          },
+          "dislike_reason_list": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "点踩可选原因"
+          },
+          "num_lines": {
+            "type": "integer",
+            "title": "评论行数",
+            "description": "评论占用行数（宿主原始字段）"
+          },
+          "read_duration": {
+            "type": "integer",
+            "description": "评论者阅读时长（分钟）",
+            "title": "阅读时长"
+          },
+          "score": {
+            "type": "string",
+            "description": "书评评分字符串（如 \"10\"），仅书评有",
+            "title": "评分"
+          },
+          "boost": {
+            "type": "integer",
+            "title": "排序加权值",
+            "description": "服务端排序加权值（宿主原始字段）"
+          },
+          "comment_pos": {
+            "$ref": "#/components/schemas/CommentPos"
+          }
+        },
+        "description": "段评对象（在书评字段基础上多 comment_pos 锚定信息）",
+        "additionalProperties": true,
+        "title": "段评对象"
+      },
+      "CommentPos": {
+        "type": "object",
+        "properties": {
+          "start_para_index": {
+            "type": "integer",
+            "description": "起点段索引",
+            "title": "起始段索引"
+          },
+          "start_word_pos": {
+            "type": "integer",
+            "description": "起点段内字偏移",
+            "title": "起始段内偏移"
+          },
+          "end_para_index": {
+            "type": "integer",
+            "title": "结束段索引",
+            "description": "结束段索引（0 基）"
+          },
+          "end_word_pos": {
+            "type": "integer",
+            "title": "结束段内偏移",
+            "description": "结束段内字偏移"
+          }
+        },
+        "description": "评论锚定位置（对应 /content 正文按换行切分后的段落）",
+        "additionalProperties": true,
+        "title": "评论锚定位置"
+      },
+      "Reply": {
+        "type": "object",
+        "properties": {
+          "reply_id": {
+            "type": "string",
+            "description": "回复 ID",
+            "title": "回复ID"
+          },
+          "reply_to_comment_id": {
+            "type": "string",
+            "description": "被回复的评论 ID",
+            "title": "被回复评论ID"
+          },
+          "reply_to_reply_id": {
+            "type": "string",
+            "description": "被回复的楼中楼 ID，0=直接回复评论",
+            "title": "被回复楼中楼ID"
+          },
+          "reply_cnt": {
+            "type": "integer",
+            "title": "回复总数"
+          },
+          "text": {
+            "type": "string",
+            "title": "评论内容",
+            "description": "回复内容"
+          },
+          "user_info": {
+            "type": "object",
+            "properties": {
+              "user_id": {
+                "type": "string",
+                "title": "用户ID",
+                "description": "用户 ID"
+              },
+              "user_name": {
+                "type": "string",
+                "description": "昵称",
+                "title": "用户昵称"
+              },
+              "user_avatar": {
+                "type": "string",
+                "description": "头像 URL",
+                "title": "头像URL"
+              },
+              "description": {
+                "type": "string",
+                "title": "个人签名"
+              },
+              "encode_user_id": {
+                "type": "string",
+                "description": "加密用户 ID",
+                "title": "加密用户ID"
+              },
+              "is_author": {
+                "type": "boolean",
+                "title": "是否本书作者"
+              },
+              "is_vip": {
+                "type": "boolean",
+                "title": "是否VIP",
+                "description": "是否 VIP 用户"
+              },
+              "gender": {
+                "type": "string",
+                "title": "频道",
+                "description": "性别标记（用户信息内；书籍对象里的 gender 是频道）"
+              },
+              "fans_num": {
+                "type": "integer",
+                "title": "粉丝数"
+              },
+              "follow_user_num": {
+                "type": "integer",
+                "title": "关注数"
+              },
+              "recv_digg_num": {
+                "type": "integer",
+                "title": "获赞数"
+              },
+              "read_book_num": {
+                "type": "integer",
+                "title": "读书数量"
+              },
+              "fans_schema": {
+                "type": "string",
+                "description": "主页跳转 schema",
+                "title": "粉丝主页Schema"
+              },
+              "follow_schema": {
+                "type": "string",
+                "description": "关注跳转 schema",
+                "title": "关注操作Schema"
+              }
+            },
+            "description": "评论用户信息（宿主透传）",
+            "additionalProperties": true,
+            "title": "评论用户信息"
+          },
+          "digg_count": {
+            "type": "integer",
+            "title": "点赞数"
+          },
+          "create_timestamp": {
+            "type": "integer",
+            "title": "发布时间戳",
+            "description": "发布时间戳（Unix 秒）"
+          },
+          "level": {
+            "type": "integer",
+            "title": "用户等级"
+          },
+          "status": {
+            "type": "integer",
+            "title": "评论状态",
+            "description": "评论状态标记（宿主原始字段）"
+          }
+        },
+        "description": "章评的内联回复（挂在 comment.reply_list 数组里）",
+        "additionalProperties": true,
+        "title": "楼中楼回复"
+      },
+      "ParaIdea": {
+        "type": "object",
+        "properties": {
+          "idea_count": {
+            "type": "integer",
+            "title": "该段段评总数"
+          },
+          "author_commented": {
+            "type": "boolean",
+            "description": "作者是否在本段发过段评（作者段评有标识）",
+            "title": "作者已评论"
+          },
+          "hot_tag": {
+            "type": "boolean",
+            "description": "是否热门段评段",
+            "title": "热门段标记"
+          },
+          "self_commented": {
+            "type": "boolean",
+            "title": "我已评论",
+            "description": "我是否已评论过"
+          },
+          "self_comment_count": {
+            "type": "integer",
+            "title": "我的评论数"
+          },
+          "comment_type_count": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "按 comment_type 统计的段评数量，如 {\"0\": 577, \"31\": 3}",
+            "title": "各类型评论数统计"
+          },
+          "show_out_comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParaComment"
+            },
+            "description": "外显的几条热门段评（结构与 /comment/para 的 comments 一致）",
+            "title": "外显热门评论"
+          }
+        },
+        "description": "单个段落的段评概览",
+        "additionalProperties": true,
+        "title": "段落段评概览"
+      },
+      "ImageInfo": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "图片地址，带时效签名（x-expires），过期后需重新调本接口",
+            "title": "图片地址"
+          },
+          "width": {
+            "type": "integer",
+            "title": "宽度",
+            "description": "图片宽度（像素）"
+          },
+          "height": {
+            "type": "integer",
+            "title": "高度",
+            "description": "图片高度（像素）"
+          },
+          "para_index": {
+            "type": "integer",
+            "description": "插入位置：图片应插在 /content 正文按换行切分后的该行之前（从 0 开始）",
+            "title": "插入位置行号"
+          },
+          "caption": {
+            "type": "string",
+            "description": "配图说明（如“配图（画师：xxx）”），无说明时为 null",
+            "nullable": true,
+            "title": "配图说明"
+          }
+        },
+        "description": "章节配图",
+        "additionalProperties": true,
+        "title": "章节配图"
+      }
+    }
+  }
+}
